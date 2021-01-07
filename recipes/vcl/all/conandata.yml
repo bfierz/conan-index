@@ -1,0 +1,9 @@
+sources:
+  "20201214":
+    sha256: 3b5a5b4f71a2548b27edd57b3492408625259c11b3edee6ba1411409281b824a
+    url: https://github.com/bfierz/vcl/archive/e8cdfbd8bcf141ffaeed537a396b74ab73e5561a.tar.gz
+
+patches:
+  "20201214":
+    - patch_file: "patches/0001-cmake-externals-check.patch"
+      base_path: "source_subfolder"
