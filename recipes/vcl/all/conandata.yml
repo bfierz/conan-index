@@ -2,6 +2,9 @@ sources:
   "20201214":
     sha256: 3b5a5b4f71a2548b27edd57b3492408625259c11b3edee6ba1411409281b824a
     url: https://github.com/bfierz/vcl/archive/e8cdfbd8bcf141ffaeed537a396b74ab73e5561a.tar.gz
+  "20210108":
+    sha256: 8d8a88b8e57029604562e21bc9e595b1c4ad74a1038457d6ec987f5e25d8e9e0
+    url: https://github.com/bfierz/vcl/archive/dff7e1a403798828e5bd69c4bd977c671fee33ef.tar.gz
 
 patches:
   "20201214":
