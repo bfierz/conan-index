@@ -3,7 +3,7 @@ import shutil
 import os
 from conans import ConanFile, CMake, tools
 
-class LibnameConan(ConanFile):
+class VclConan(ConanFile):
     name = "vcl"
     
     description = "Visual Computing Library (VCL)"
@@ -72,6 +72,9 @@ class LibnameConan(ConanFile):
     def _configure_cmake(self):
         cmake = CMake(self)
 
+        # Conan configuration
+        cmake.definitions["CONAN_CMAKE_INSTALL_DIR"] = self.install_folder
+
         # Configure which parts to build
         cmake.definitions["VCL_BUILD_BENCHMARKS"] = False
         cmake.definitions["VCL_BUILD_TESTS"] = False
@@ -102,26 +105,19 @@ class LibnameConan(ConanFile):
         cmake.configure(build_folder=self._build_subfolder)
 
         cmake.build(target="vcl_core")
+        cmake.build(target="vcl.components")
+        cmake.build(target="vcl_compute")
         cmake.build(target="vcl.geometry")
         cmake.build(target="vcl_graphics")
         cmake.build(target="vcl.math")
 
         cmake.install()
-    def package(self):
 
-        bin_folder = os.path.join(self._build_subfolder, "bin")
-        lib_folder = os.path.join(self._build_subfolder, "lib")
-        inc_folder = os.path.join(self._source_subfolder, "include")
-        
-        self.copy(pattern="LICENSE", dst="licenses", src=self._source_subfolder)
-        self.copy("*.dll", dst="bin", src=bin_folder)
-        self.copy("*.a", dst="lib", src=lib_folder)
-        self.copy("*.lib", dst="lib", src=lib_folder)
-        self.copy("*.h", dst="include", src=inc_folder)
-        self.copy("*.inl", dst="include", src=inc_folder)
+    def package(self):
+        # Only copy missing files, not covered by cmake install, to the package folder
+        self.copy(pattern="LICENSE", dst="licenses", src=os.path.join(self.source_folder, self._source_subfolder))
 
     def package_info(self):
-
         self.cpp_info.defines = []
         if self.options.opengl:
             self.cpp_info.defines.append('VCL_OPENGL_SUPPORT')
