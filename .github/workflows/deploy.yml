@@ -1,0 +1,61 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to build'
+        default: ''
+        required: true
+      version:
+        description: 'Package version to build'
+        default: ''
+        required: true
+      options:
+        description: 'Package options to add to the permutation'
+        default: ''
+        required: false
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {
+              name: "Build Windows",
+              os: windows-latest
+            }
+          - {
+              name: "Build Linux",
+              os: ubuntu-latest
+            }
+    env:
+      CONAN_LOGIN_USERNAME_UPSTREAM: ${{ secrets.CONAN_LOGIN_USERNAME_UPSTREAM }}
+      CONAN_PASSWORD_UPSTREAM: ${{ secrets.CONAN_PASSWORD_UPSTREAM }}
+      CONAN_UPLOAD: ${{ secrets.CONAN_UPLOAD_UPSTREAM }}
+      CONAN_USERNAME: "b4z"
+      CONAN_CHANNEL: "testing"
+      CONAN_REFERENCE: ${{ github.event.inputs.package }}/${{ github.event.inputs.version }}
+      CONAN_BUILD_ALL_OPTIONS_VALUES: ${{ github.event.inputs.options }}
+      CONAN_ARCHS: "x86_64"
+      CONAN_BUILD_TYPES: "Debug,Release"
+      CONAN_VISUAL_VERSIONS: "16"
+      CONAN_VISUAL_RUNTIMES: "MD,MDd"
+      CONAN_GCC_VERSIONS: "9"
+      CONAN_CLANG_VERSIONS: "10"
+    steps:
+      - uses: actions/checkout@v1
+      - name: Prepare
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install conan conan-package-tools
+      - name: Build
+        shell: pwsh
+        run: |
+          pushd recipes/${{ github.event.inputs.package }}/all
+          python ../../../utils/build.py
+          popd
