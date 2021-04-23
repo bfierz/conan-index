@@ -1,0 +1,52 @@
+name: Manual Deploy
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Package to build'
+        default: ''
+        required: true
+      version:
+        description: 'Package version to build'
+        default: ''
+        required: true
+      options:
+        description: 'Package options to add to the permutation'
+        default: ''
+        required: false
+
+jobs:
+  build:
+    name: ${{ matrix.config.name }}
+    runs-on: ${{ matrix.config.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - {
+              name: "Build Windows",
+              os: windows-latest
+            }
+          - {
+              name: "Build Linux",
+              os: ubuntu-latest
+            }
+    env:
+      CONAN_LOGIN_USERNAME_UPSTREAM: ${{ sectrets.CONAN_LOGIN_USERNAME_UPSTREAM }}
+      CONAN_PASSWORD_UPSTREAM: ${{ sectrets.CONAN_PASSWORD_UPSTREAM }}
+      CONAN_UPLOAD: ${{ sectrets.CONAN_UPLOAD }}
+      CONAN_USERNAME: "b4z"
+      CONAN_CHANNEL: "testing"
+      CONAN_REFERENCE: ${{ github.event.inputs.package }}/${{ github.event.inputs.version }}
+      CONAN_BUILD_ALL_OPTIONS_VALUES: ${{ github.event.inputs.options }}
+      CONAN_ARCHS: "x86_64"
+      CONAN_BUILD_TYPES: "Debug,Release"
+      CONAN_VISUAL_VERSIONS: "16"
+      CONAN_VISUAL_RUNTIMES: "MD,MDd"
+    steps:
+      - uses: actions/checkout@v1
+      - name: Build
+        shell: pwsh
+        run: |
+          python utils/build.py
