@@ -1,8 +1,4 @@
 ---
 versions:
-  "20210122":
-    folder: all
-  "20210430":
-    folder: all
-  "20210521":
+  '0.0.20240831':
     folder: all

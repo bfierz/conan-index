@@ -1,28 +1,27 @@
-import glob
-import pathlib
+from conan import ConanFile
+from conan.errors import ConanInvalidConfiguration
+from conan.tools.build import check_min_cppstd
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.env import VirtualBuildEnv
+from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, replace_in_file, rm, rmdir
+from conan.tools.microsoft import check_min_vs, is_msvc, is_msvc_static_runtime
+from conan.tools.scm import Version
 import os
-import shutil
-from conans import ConanFile, CMake, tools
 
-class LibnameConan(ConanFile):
+
+required_conan_version = ">=1.53.0"
+
+
+class DawnConan(ConanFile):
     name = "dawn"
     
     description = "Dawn, a WebGPU implementation"
     topics = ("Rendering")
-
     homepage = "https://dawn.googlesource.com/dawn"
     url = "https://github.com/conan-io/conan-center-index"
-
-    license = "Apache 2.0 Public License"
-
-    exports_sources = ["patches/**"]
-    generators = "cmake"
-
-    # Enforce short paths due to long paths of sub-modules
-    short_paths = True
-
-    # Avoid copying source to the huge number of files
-    no_copy_source = True
+    license = "BSD 3-Clause License"
+    topics = ("Rendering", "WebGPU")
+    package_type = "library"
 
     settings = "os", "arch", "compiler", "build_type"
     options = {
@@ -40,18 +39,20 @@ class LibnameConan(ConanFile):
             "fPIC": True
     }
 
-    def requirements(self):
-        pass
+    @property
+    def _min_cppstd(self):
+        return 14
 
+    # in case the project requires C++14/17/20/... the minimum compiler version should be listed
     @property
-    def _depot_tools_subfolder(self):
-        return "depot_tools"
-    @property
-    def _source_subfolder(self):
-        return "source_subfolder"
-    @property
-    def _build_subfolder(self):
-        return "build_subfolder"
+    def _compilers_minimum_version(self):
+        return {
+            "apple-clang": "10",
+            "clang": "7",
+            "gcc": "7",
+            "msvc": "191",
+            "Visual Studio": "19",
+        }
 
     def config_options(self):
 
@@ -63,103 +64,65 @@ class LibnameConan(ConanFile):
         if self.settings.os != 'Macos':
             del self.options.metal
 
+    def layout(self):
+        # src_folder must use the same source folder name the project
+        cmake_layout(self, src_folder="src")
+
     def configure(self):
-        minimal_cpp_standard = "14"
-        if self.settings.compiler.cppstd:
-            tools.check_min_cppstd(self, 14)
-
-    def checkout(self, url, commit):
-
-        git = tools.Git(folder=self._source_subfolder)
-        git.clone(url)
-        git.checkout(element=commit)
+        if self.options.shared:
+            self.options.rm_safe("fPIC")
 
     def source(self):
+        get(self, **self.conan_data["sources"][self.version], strip_root=False)
 
-        # Download Google Depot Tools to build Dawn
-        depot_tools_git = tools.Git(folder=self._depot_tools_subfolder)
-        depot_tools_git.clone("https://chromium.googlesource.com/chromium/tools/depot_tools.git")
-        depot_tools_git.checkout(element='main')
-        os.environ['PATH'] = f"{self.source_folder}/{self._depot_tools_subfolder}{os.pathsep}{os.environ.get('PATH')}"
+    def generate(self):
+        # BUILD_SHARED_LIBS and POSITION_INDEPENDENT_CODE are automatically parsed when self.options.shared or self.options.fPIC exist
+        tc = CMakeToolchain(self)
 
-        self.checkout(**self.conan_data["sources"][self.version])
+        #  Automatically fetch the required dependencies
+        tc.variables["DAWN_FETCH_DEPENDENCIES"] = True
 
-        with tools.chdir(self._source_subfolder):
+        #  Generate install target
+        tc.variables["DAWN_ENABLE_INSTALL"] = True
 
-            # Avoid downloading bundled toolchain (only works from within Google)
-            if self.settings.os == 'Windows':
-                os.environ["DEPOT_TOOLS_WIN_TOOLCHAIN"] = "0"
+        if is_msvc(self):
+            # Don't use self.settings.compiler.runtime
+            tc.variables["USE_MSVC_RUNTIME_LIBRARY_DLL"] = not is_msvc_static_runtime(self)
 
-            shutil.copyfile("scripts/standalone.gclient", ".gclient")
-            self.run("gclient sync")
-
-        for patch in self.conan_data.get("patches", {}).get(self.version, []):
-            tools.patch(**patch)
+        tc.generate()
 
     def build(self):
-        os.environ['PATH'] = f"{self.source_folder}/{self._depot_tools_subfolder}{os.pathsep}{os.environ.get('PATH')}"
-        with tools.chdir(f"{self.source_folder}/{self._source_subfolder}"):
-            local_build_folder = f"{self.build_folder}/{self._build_subfolder}"
-            pathlib.Path(local_build_folder).mkdir(parents=False, exist_ok=True)
-
-            with open(f"{local_build_folder}/args.gn", "w") as file:
-                file.write("is_clang=false\n")
-                file.write("visual_studio_version=\"2019\"\n")
-
-                if self.settings.build_type == "Debug":
-                    file.write("is_debug=true\n")
-                    file.write("enable_iterator_debugging=true\n")
-                    file.write("symbol_level=2\n")
-                else:
-                    file.write("is_debug=false\n")
-                    file.write("enable_iterator_debugging=false\n")
-                    file.write("symbol_level=0\n")
-
-                if self.options.shared == False:
-                    file.write("dawn_complete_static_libs=true\n")
-
-                file.write("dawn_enable_d3d12={}\n".format('true' if self.options.get_safe("d3d12") else 'false'))
-                file.write("dawn_enable_vulkan={}\n".format('true' if self.options.get_safe("vulkan") else 'false'))
-                file.write("dawn_enable_metal={}\n".format('true' if self.options.get_safe("metal") else 'false'))
-
-                # Disable legacy backends
-                file.write("dawn_enable_opengl=false\n")
-                file.write("dawn_use_angle=false\n")
-
-            self.run(f'gn gen {local_build_folder} --target_cpu="x64"')
-            self.run(f"ninja -C {local_build_folder} dawn_native_shared dawn_proc_shared dawncpp")
-
-            # Build static library from 'webgpu_cpp.cpp' to fix the conan packaging approach
-            pathlib.Path(f"{self.build_folder}/webgpucpp").mkdir(parents=False, exist_ok=True)
-            with open(f"{self.build_folder}/webgpucpp/CMakeLists.txt", "w") as file:
-                file.write(f"add_library(webgpu_cpp STATIC {local_build_folder}/gen/src/dawn/webgpu_cpp.cpp)\n")
-                file.write(f"target_include_directories(webgpu_cpp PRIVATE\n")
-                file.write(f"{local_build_folder}/gen/src/include\n")
-                file.write(f"{self.source_folder}/{self._source_subfolder}/src/include)\n")
-
-            cmake = CMake(self)
-            cmake.configure(source_folder=f"{self.build_folder}/webgpucpp", build_folder=f"{self.build_folder}/webgpucpp/build")
-            cmake.build()
+        cmake = CMake(self)
+        cmake.configure()
+        cmake.build()
 
     def package(self):
-
-        local_source_folder = f"{self.source_folder}/{self._source_subfolder}"
-        local_build_folder = f"{self.build_folder}/{self._build_subfolder}"
-        dawn_inc_folder = f"{local_source_folder}/src/include"
-        dawn_gen_inc_folder = f"{local_build_folder}/gen/src/include"
-
-        self.copy(pattern="LICENSE", dst="licenses", src=local_source_folder)
-        self.copy("dawn_*.dll", dst="bin", src=local_build_folder)
-        self.copy("dawn_*.lib", dst="lib", src=local_build_folder)
-        self.copy("dawn_*.so", dst="bin", src=local_build_folder)
-        self.copy("dawn_*.a", dst="lib", src=local_build_folder)
-
-        self.copy("webgpu_cpp.lib", dst="lib", src=f"{self.build_folder}/webgpucpp/build")
-
-        self.copy("*.h", dst="include", src=dawn_inc_folder)
-        self.copy("*.h", dst="include", src=dawn_gen_inc_folder)
-        self.copy("*.inl", dst="include", src=dawn_inc_folder)
-        self.copy("*.inl", dst="include", src=dawn_gen_inc_folder)
+        copy(self, "LICENSE", self.source_folder, os.path.join(self.package_folder, "licenses"))
+        cmake = CMake(self)
+        cmake.install()
+        
+        # some files extensions and folders are not allowed. Please, read the FAQs to get informed.
+        rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
+        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
+        rmdir(self, os.path.join(self.package_folder, "share"))
+        rm(self, "*.la", os.path.join(self.package_folder, "lib"))
+        rm(self, "*.pdb", os.path.join(self.package_folder, "lib"))
+        rm(self, "*.pdb", os.path.join(self.package_folder, "bin"))
 
     def package_info(self):
-        self.cpp_info.libs = tools.collect_libs(self)
+        self.cpp_info.libs = ["webgpu_dawn"]
+
+        self.cpp_info.set_property("cmake_file_name", "dawn")
+        self.cpp_info.set_property("cmake_target_name", "dawn::webgpu_dawn")
+        
+        # If they are needed on Linux, m, pthread and dl are usually needed on FreeBSD too
+        if self.settings.os in ["Linux", "FreeBSD"]:
+            self.cpp_info.system_libs.append("m")
+            self.cpp_info.system_libs.append("pthread")
+            self.cpp_info.system_libs.append("dl")
+
+        # TODO: to remove in conan v2 once cmake_find_package_* generators removed
+        self.cpp_info.filenames["cmake_find_package"] = "DAWN"
+        self.cpp_info.filenames["cmake_find_package_multi"] = "dawn"
+        self.cpp_info.names["cmake_find_package"] = "DAWN"
+        self.cpp_info.names["cmake_find_package_multi"] = "dawn"

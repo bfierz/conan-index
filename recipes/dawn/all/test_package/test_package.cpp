@@ -1,4 +1,4 @@
-#include <dawn_native/DawnNative.h>
+#include <dawn/native/DawnNative.h>
 
 #include <memory>
 

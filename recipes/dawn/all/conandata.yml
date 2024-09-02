@@ -1,21 +1,3 @@
 sources:
-  "20210122":
-    url: https://dawn.googlesource.com/dawn
-    commit: 72cd1a5e8953292dd97c4006973850c880d39db8
-  "20210430":
-    url: https://dawn.googlesource.com/dawn
-    commit: 1226d48b71a91116708724589ba7a857e967cb19
-  "20210521":
-    url: https://dawn.googlesource.com/dawn
-    commit: 41c87d973a310c33b5617ddfd90b4b9c4d41559b
-
-patches:
-  "20210122":
-    - patch_file: "patches/0001-msvc-build.patch"
-      base_path: "source_subfolder"
-  "20210430":
-    - patch_file: "patches/0002-msvc-build.patch"
-      base_path: "source_subfolder"
-  "20210521":
-    - patch_file: "patches/0002-msvc-build.patch"
-      base_path: "source_subfolder"
+  '0.0.20240831':
+    url: https://dawn.googlesource.com/dawn/+archive/bbe1f2283382a1c71924e300ab373525185507fe.tar.gz
