@@ -21,29 +21,26 @@ class DawnConan(ConanFile):
     url = "https://github.com/conan-io/conan-center-index"
     license = "BSD 3-Clause License"
     topics = ("Rendering", "WebGPU")
-    package_type = "library"
+    package_type = "shared-library"
 
     settings = "os", "arch", "compiler", "build_type"
     options = {
-            "shared": [True, False],
+            "d3d11": [True, False],
             "d3d12": [True, False],
             "vulkan": [True, False],
-            "metal": [True, False],
-            "fPIC": [True, False]
-            }
+            "metal": [True, False]
+    }
     default_options = {
-            "shared": False,
+            "d3d11": True,
             "d3d12": True,
             "vulkan": True,
-            "metal": True,
-            "fPIC": True
+            "metal": True
     }
 
     @property
     def _min_cppstd(self):
-        return 14
+        return 17
 
-    # in case the project requires C++14/17/20/... the minimum compiler version should be listed
     @property
     def _compilers_minimum_version(self):
         return {
@@ -56,27 +53,31 @@ class DawnConan(ConanFile):
 
     def config_options(self):
 
-        if self.settings.os == 'Windows':
-            del self.options.fPIC
-        else:
+        if self.settings.os != 'Windows':
+            del self.options.d3d11
             del self.options.d3d12
         
         if self.settings.os != 'Macos':
             del self.options.metal
+        else:
+            del self.options.vulkan
 
     def layout(self):
-        # src_folder must use the same source folder name the project
         cmake_layout(self, src_folder="src")
 
-    def configure(self):
-        if self.options.shared:
-            self.options.rm_safe("fPIC")
+    def validate(self):
+        if self.settings.compiler.cppstd:
+            check_min_cppstd(self, self._min_cppstd)
+        minimum_version = self._compilers_minimum_version.get(str(self.settings.compiler), False)
+        if minimum_version and Version(self.settings.compiler.version) < minimum_version:
+            raise ConanInvalidConfiguration(
+                f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
+            )
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=False)
 
     def generate(self):
-        # BUILD_SHARED_LIBS and POSITION_INDEPENDENT_CODE are automatically parsed when self.options.shared or self.options.fPIC exist
         tc = CMakeToolchain(self)
 
         #  Automatically fetch the required dependencies
@@ -84,6 +85,12 @@ class DawnConan(ConanFile):
 
         #  Generate install target
         tc.variables["DAWN_ENABLE_INSTALL"] = True
+
+        # Backends
+        tc.variables["DAWN_ENABLE_D3D11"] = bool(self.options.d3d11) if "d3d11" in self.options else False
+        tc.variables["DAWN_ENABLE_D3D12"] = bool(self.options.d3d12) if "d3d12" in self.options else False
+        tc.variables["DAWN_ENABLE_VULKAN"] = bool(self.options.vulkan) if "vulkan" in self.options else False
+        tc.variables["DAWN_ENABLE_METAL"] = bool(self.options.metal) if "metal" in self.options else False
 
         if is_msvc(self):
             # Don't use self.settings.compiler.runtime
@@ -100,7 +107,7 @@ class DawnConan(ConanFile):
         copy(self, "LICENSE", self.source_folder, os.path.join(self.package_folder, "licenses"))
         cmake = CMake(self)
         cmake.install()
-        
+
         # some files extensions and folders are not allowed. Please, read the FAQs to get informed.
         rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
         rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))

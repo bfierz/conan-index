@@ -4,7 +4,7 @@
 
 int main()
 {
-	auto instance = std::make_unique<dawn_native::Instance>();
-	instance->DiscoverDefaultAdapters();
+	auto instance = std::make_unique<dawn::native::Instance>();
+	instance->GetDeviceCountForTesting();
 	return 0;
 }
