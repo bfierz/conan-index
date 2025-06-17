@@ -1,3 +1,5 @@
 sources:
   '0.0.20240831':
     url: https://dawn.googlesource.com/dawn/+archive/bbe1f2283382a1c71924e300ab373525185507fe.tar.gz
+  '0.0.20250612':
+    url: https://dawn.googlesource.com/dawn/+archive/31cf85d685b9ba4f3596ac21d484051f3196e43a.tar.gz
