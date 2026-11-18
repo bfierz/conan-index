@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       package:
-        description: 'Package to build'
+        description: 'Package to build (folder name in recipes/)'
         default: ''
         required: true
       version:
@@ -12,50 +12,89 @@ on:
         default: ''
         required: true
       options:
-        description: 'Package options to add to the permutation'
+        description: 'Extra Conan arguments, e.g. "-o dawn/*:vulkan=False"'
         default: ''
         required: false
+      cppstd:
+        description: 'C++ standard to build with'
+        default: '17'
+        required: true
+      upload:
+        description: 'Upload the packages to the upstream remote'
+        type: boolean
+        default: true
 
 jobs:
   build:
-    name: ${{ matrix.config.name }}
-    runs-on: ${{ matrix.config.os }}
+    name: ${{ matrix.name }} ${{ matrix.build_type }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        config:
-          - {
-              name: "Build Windows",
-              os: windows-latest
-            }
-          - {
-              name: "Build Linux",
-              os: ubuntu-latest
-            }
+        include:
+          - { name: "Build Windows", os: windows-latest, build_type: Debug }
+          - { name: "Build Windows", os: windows-latest, build_type: Release }
+          - { name: "Build Linux", os: ubuntu-latest, build_type: Debug }
+          - { name: "Build Linux", os: ubuntu-latest, build_type: Release }
     env:
+      # Conan 2 reads the credentials for the remote named "upstream" from these
       CONAN_LOGIN_USERNAME_UPSTREAM: ${{ secrets.CONAN_LOGIN_USERNAME_UPSTREAM }}
       CONAN_PASSWORD_UPSTREAM: ${{ secrets.CONAN_PASSWORD_UPSTREAM }}
       CONAN_UPLOAD: ${{ secrets.CONAN_UPLOAD_UPSTREAM }}
-      CONAN_USERNAME: "b4z"
-      CONAN_CHANNEL: "testing"
       CONAN_REFERENCE: ${{ github.event.inputs.package }}/${{ github.event.inputs.version }}
-      CONAN_BUILD_ALL_OPTIONS_VALUES: ${{ github.event.inputs.options }}
-      CONAN_ARCHS: "x86_64"
-      CONAN_BUILD_TYPES: "Debug,Release"
-      CONAN_VISUAL_VERSIONS: "16"
-      CONAN_VISUAL_RUNTIMES: "MD,MDd"
-      CONAN_GCC_VERSIONS: "9"
-      CONAN_CLANG_VERSIONS: "10"
+      # Inputs go through env instead of being pasted into the scripts
+      PACKAGE: ${{ github.event.inputs.package }}
+      VERSION: ${{ github.event.inputs.version }}
+      EXTRA_ARGS: ${{ github.event.inputs.options }}
+      CPPSTD: ${{ github.event.inputs.cppstd }}
+      BUILD_TYPE: ${{ matrix.build_type }}
     steps:
-      - uses: actions/checkout@v1
-      - name: Prepare
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Conan
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          pip install conan conan-package-tools
+          pip install "conan>=2.0.9,<3"
+          conan --version
+
+      - name: Configure Conan
+        shell: pwsh
+        run: |
+          conan profile detect --force
+          # Let recipes install their system packages (apt) on the Linux runners
+          if ($IsLinux) {
+            $globalConf = Join-Path (conan config home) "global.conf"
+            Add-Content -Path $globalConf -Value "tools.system.package_manager:mode=install"
+            Add-Content -Path $globalConf -Value "tools.system.package_manager:sudo=True"
+          }
+          conan profile show
+
       - name: Build
         shell: pwsh
         run: |
-          pushd recipes/${{ github.event.inputs.package }}/all
-          python ../../../utils/build.py
-          popd
+          $extra = @($env:EXTRA_ARGS -split ' ' | Where-Object { $_ })
+          conan create "recipes/$env:PACKAGE/all" `
+            --version "$env:VERSION" `
+            --build=missing `
+            -s "build_type=$env:BUILD_TYPE" `
+            -s "compiler.cppstd=$env:CPPSTD" `
+            @extra
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Upload
+        if: ${{ github.event.inputs.upload == 'true' && env.CONAN_UPLOAD != '' }}
+        shell: pwsh
+        run: |
+          # Accepts a plain URL or the Conan 1 "url@verify_ssl@name" format
+          $url = ($env:CONAN_UPLOAD -split '@')[0]
+          conan remote add upstream $url --force
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # Username and password come from CONAN_LOGIN_USERNAME_UPSTREAM / CONAN_PASSWORD_UPSTREAM
+          conan remote login upstream -cc core:non_interactive=True
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          conan upload "$env:CONAN_REFERENCE" -r upstream --confirm -cc core:non_interactive=True
