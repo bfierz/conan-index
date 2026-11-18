@@ -1,40 +1,38 @@
 from conan import ConanFile
 from conan.errors import ConanInvalidConfiguration
 from conan.tools.build import check_min_cppstd
-from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
-from conan.tools.env import VirtualBuildEnv
-from conan.tools.files import apply_conandata_patches, copy, export_conandata_patches, get, replace_in_file, rm, rmdir
-from conan.tools.microsoft import check_min_vs, is_msvc, is_msvc_static_runtime
+from conan.tools.cmake import CMake, CMakeToolchain, cmake_layout
+from conan.tools.files import copy, get, rm, rmdir
+from conan.tools.microsoft import is_msvc, is_msvc_static_runtime
 from conan.tools.scm import Version
+from conan.tools.system.package_manager import Apt
 import os
 
 
-required_conan_version = ">=1.53.0"
+required_conan_version = ">=2.0.9"
 
 
 class DawnConan(ConanFile):
     name = "dawn"
-    
     description = "Dawn, a WebGPU implementation"
-    topics = ("Rendering")
+    license = "BSD-3-Clause"
     homepage = "https://dawn.googlesource.com/dawn"
-    url = "https://github.com/conan-io/conan-center-index"
-    license = "BSD 3-Clause License"
-    topics = ("Rendering", "WebGPU")
+    url = "https://github.com/bfierz/conan-index"
+    topics = ("rendering", "webgpu")
     package_type = "shared-library"
 
     settings = "os", "arch", "compiler", "build_type"
     options = {
-            "d3d11": [True, False],
-            "d3d12": [True, False],
-            "vulkan": [True, False],
-            "metal": [True, False]
+        "d3d11": [True, False],
+        "d3d12": [True, False],
+        "vulkan": [True, False],
+        "metal": [True, False],
     }
     default_options = {
-            "d3d11": True,
-            "d3d12": True,
-            "vulkan": True,
-            "metal": True
+        "d3d11": True,
+        "d3d12": True,
+        "vulkan": True,
+        "metal": True,
     }
 
     @property
@@ -48,53 +46,72 @@ class DawnConan(ConanFile):
             "clang": "7",
             "gcc": "7",
             "msvc": "191",
-            "Visual Studio": "19",
         }
 
     def config_options(self):
-
-        if self.settings.os != 'Windows':
+        if self.settings.os != "Windows":
             del self.options.d3d11
             del self.options.d3d12
-        
-        if self.settings.os != 'Macos':
-            del self.options.metal
-        else:
+
+        if self.settings.os == "Macos":
             del self.options.vulkan
+        else:
+            del self.options.metal
 
     def layout(self):
         cmake_layout(self, src_folder="src")
 
     def validate(self):
-        if self.settings.compiler.cppstd:
-            check_min_cppstd(self, self._min_cppstd)
+        check_min_cppstd(self, self._min_cppstd)
         minimum_version = self._compilers_minimum_version.get(str(self.settings.compiler), False)
         if minimum_version and Version(self.settings.compiler.version) < minimum_version:
             raise ConanInvalidConfiguration(
                 f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
             )
 
+    def system_requirements(self):
+        # X11 surface support and the OpenGL backends need these headers on Linux
+        Apt(self).install([
+            "libx11-xcb-dev", "libxrandr-dev", "libxinerama-dev", "libxcursor-dev",
+            "libxi-dev", "mesa-common-dev", "libgl-dev",
+        ])
+
     def source(self):
+        # googlesource "+archive" tarballs are generated on request and have no
+        # stable checksum, so conandata.yml carries no sha256.
         get(self, **self.conan_data["sources"][self.version], strip_root=False)
 
     def generate(self):
         tc = CMakeToolchain(self)
 
-        #  Automatically fetch the required dependencies
-        tc.variables["DAWN_FETCH_DEPENDENCIES"] = True
+        # Dawn fetches its third-party dependencies itself (needs git and python on PATH)
+        tc.cache_variables["DAWN_FETCH_DEPENDENCIES"] = True
 
-        #  Generate install target
-        tc.variables["DAWN_ENABLE_INSTALL"] = True
+        # Single shared library with an install target
+        # Since M140 the option is a string (SHARED/STATIC/OFF), before it was a boolean
+        if Version(self.version) >= "140":
+            tc.cache_variables["DAWN_BUILD_MONOLITHIC_LIBRARY"] = "SHARED"
+        else:
+            tc.cache_variables["DAWN_BUILD_MONOLITHIC_LIBRARY"] = True
+        tc.cache_variables["DAWN_ENABLE_INSTALL"] = True
+        if self.settings.os != "Windows":
+            tc.cache_variables["DAWN_ENABLE_PIC"] = True
+
+        # Only build the library
+        tc.cache_variables["DAWN_BUILD_SAMPLES"] = False
+        tc.cache_variables["DAWN_BUILD_TESTS"] = False
+        tc.cache_variables["TINT_BUILD_TESTS"] = False
+        tc.cache_variables["TINT_BUILD_CMD_TOOLS"] = False
+        tc.cache_variables["DAWN_USE_GLFW"] = False
 
         # Backends
-        tc.variables["DAWN_ENABLE_D3D11"] = bool(self.options.d3d11) if "d3d11" in self.options else False
-        tc.variables["DAWN_ENABLE_D3D12"] = bool(self.options.d3d12) if "d3d12" in self.options else False
-        tc.variables["DAWN_ENABLE_VULKAN"] = bool(self.options.vulkan) if "vulkan" in self.options else False
-        tc.variables["DAWN_ENABLE_METAL"] = bool(self.options.metal) if "metal" in self.options else False
+        tc.cache_variables["DAWN_ENABLE_D3D11"] = bool(self.options.get_safe("d3d11", False))
+        tc.cache_variables["DAWN_ENABLE_D3D12"] = bool(self.options.get_safe("d3d12", False))
+        tc.cache_variables["DAWN_ENABLE_VULKAN"] = bool(self.options.get_safe("vulkan", False))
+        tc.cache_variables["DAWN_ENABLE_METAL"] = bool(self.options.get_safe("metal", False))
 
         if is_msvc(self):
-            # Don't use self.settings.compiler.runtime
-            tc.variables["USE_MSVC_RUNTIME_LIBRARY_DLL"] = not is_msvc_static_runtime(self)
+            tc.cache_variables["USE_MSVC_RUNTIME_LIBRARY_DLL"] = not is_msvc_static_runtime(self)
 
         tc.generate()
 
@@ -108,7 +125,6 @@ class DawnConan(ConanFile):
         cmake = CMake(self)
         cmake.install()
 
-        # some files extensions and folders are not allowed. Please, read the FAQs to get informed.
         rmdir(self, os.path.join(self.package_folder, "lib", "pkgconfig"))
         rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
         rmdir(self, os.path.join(self.package_folder, "share"))
@@ -117,19 +133,9 @@ class DawnConan(ConanFile):
         rm(self, "*.pdb", os.path.join(self.package_folder, "bin"))
 
     def package_info(self):
-        self.cpp_info.libs = ["webgpu_dawn"]
-
         self.cpp_info.set_property("cmake_file_name", "dawn")
         self.cpp_info.set_property("cmake_target_name", "dawn::webgpu_dawn")
-        
-        # If they are needed on Linux, m, pthread and dl are usually needed on FreeBSD too
-        if self.settings.os in ["Linux", "FreeBSD"]:
-            self.cpp_info.system_libs.append("m")
-            self.cpp_info.system_libs.append("pthread")
-            self.cpp_info.system_libs.append("dl")
+        self.cpp_info.libs = ["webgpu_dawn"]
 
-        # TODO: to remove in conan v2 once cmake_find_package_* generators removed
-        self.cpp_info.filenames["cmake_find_package"] = "DAWN"
-        self.cpp_info.filenames["cmake_find_package_multi"] = "dawn"
-        self.cpp_info.names["cmake_find_package"] = "DAWN"
-        self.cpp_info.names["cmake_find_package_multi"] = "dawn"
+        if self.settings.os in ["Linux", "FreeBSD"]:
+            self.cpp_info.system_libs.extend(["m", "pthread", "dl"])
