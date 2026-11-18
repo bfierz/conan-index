@@ -1,5 +1,11 @@
+# Versions follow Chrome milestones: <milestone>.0.<chromium branch>.
+# Each source is the head of Dawn's chromium/<branch> branch at the time it was added.
+# googlesource "+archive" tarballs are generated on request and differ byte-wise
+# between downloads, so they are pinned by commit and carry no sha256.
 sources:
-  '0.0.20240831':
-    url: https://dawn.googlesource.com/dawn/+archive/bbe1f2283382a1c71924e300ab373525185507fe.tar.gz
-  '0.0.20250612':
-    url: https://dawn.googlesource.com/dawn/+archive/31cf85d685b9ba4f3596ac21d484051f3196e43a.tar.gz
+  '130.0.6723':
+    url: https://dawn.googlesource.com/dawn/+archive/f1041a163d06fb86b082e29260ab53a4637b0e98.tar.gz
+  '139.0.7258':
+    url: https://dawn.googlesource.com/dawn/+archive/46b4670bc67cb4f6d34f6ce6a46ba7e1d6059abf.tar.gz
+  '159.0.8154':
+    url: https://dawn.googlesource.com/dawn/+archive/16b69da1f131fbae9e03877635281ebcf7a0f4a0.tar.gz
