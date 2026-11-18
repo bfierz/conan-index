@@ -37,15 +37,23 @@ class DawnConan(ConanFile):
 
     @property
     def _min_cppstd(self):
-        return 17
+        # Dawn and its public webgpu_cpp.h moved to C++20 between M130 (C++17) and M139
+        return 17 if Version(self.version) < "139" else 20
 
     @property
     def _compilers_minimum_version(self):
+        if self._min_cppstd == 17:
+            return {
+                "apple-clang": "10",
+                "clang": "7",
+                "gcc": "7",
+                "msvc": "191",
+            }
         return {
-            "apple-clang": "10",
-            "clang": "7",
-            "gcc": "7",
-            "msvc": "191",
+            "apple-clang": "14",
+            "clang": "12",
+            "gcc": "10",
+            "msvc": "193",
         }
 
     def config_options(self):
@@ -69,6 +77,9 @@ class DawnConan(ConanFile):
                 f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
             )
 
+    def build_requirements(self):
+        self.tool_requires("ninja/[>=1.11 <2]")
+
     def system_requirements(self):
         # X11 surface support and the OpenGL backends need these headers on Linux
         Apt(self).install([
@@ -82,7 +93,9 @@ class DawnConan(ConanFile):
         get(self, **self.conan_data["sources"][self.version], strip_root=False)
 
     def generate(self):
-        tc = CMakeToolchain(self)
+        # Single-config generator: Dawn derives its debug settings (DAWN_ENABLE_ASSERTS, ...)
+        # from CMAKE_BUILD_TYPE, which multi-config generators such as Visual Studio leave empty
+        tc = CMakeToolchain(self, generator="Ninja")
 
         # Dawn fetches its third-party dependencies itself (needs git and python on PATH)
         tc.cache_variables["DAWN_FETCH_DEPENDENCIES"] = True

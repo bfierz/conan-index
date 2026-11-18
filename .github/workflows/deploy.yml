@@ -17,7 +17,7 @@ on:
         required: false
       cppstd:
         description: 'C++ standard to build with'
-        default: '17'
+        default: '20'
         required: true
       upload:
         description: 'Upload the packages to the upstream remote'
