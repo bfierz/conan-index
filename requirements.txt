@@ -1,0 +1,2 @@
+# Conan version used for local development and CI. Bump it here only.
+conan==2.34.0

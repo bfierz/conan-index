@@ -42,4 +42,5 @@ class SlangConan(ConanFile):
         copy(self, "*.a", os.path.join(self.build_folder, "lib"), os.path.join(self.package_folder, "lib"))
 
     def package_info(self):
-        self.buildenv_info.append("PATH", os.path.join(self.package_folder, "bin"))
+        # bindirs ("bin" by default) are added to the consumers' PATH by Conan
+        self.cpp_info.bindirs = ["bin"]
