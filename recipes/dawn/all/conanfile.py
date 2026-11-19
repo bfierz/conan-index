@@ -123,6 +123,13 @@ class DawnConan(ConanFile):
         tc.cache_variables["DAWN_ENABLE_VULKAN"] = bool(self.options.get_safe("vulkan", False))
         tc.cache_variables["DAWN_ENABLE_METAL"] = bool(self.options.get_safe("metal", False))
 
+        # Load d3dcompiler_47.dll and vulkan-1.dll from System32. Without this, newer Dawn
+        # only looks next to webgpu_dawn.dll and the executable (the bare-name fallback uses
+        # LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR and fails with ERROR_INVALID_PARAMETER), and the
+        # package ships neither DLL. Older releases have no such option and use LoadLibraryA.
+        if self.settings.os == "Windows":
+            tc.cache_variables["DAWN_FORCE_SYSTEM_COMPONENT_LOAD"] = True
+
         if is_msvc(self):
             tc.cache_variables["USE_MSVC_RUNTIME_LIBRARY_DLL"] = not is_msvc_static_runtime(self)
 
