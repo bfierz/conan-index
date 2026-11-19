@@ -1,0 +1,5 @@
+# Extra tools for local development only (CI installs requirements.txt).
+-r requirements.txt
+# Recent CMake inside the venv, so local builds do not depend on the system
+# CMake knowing the installed Visual Studio version.
+cmake==4.4.5

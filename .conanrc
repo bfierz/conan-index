@@ -1,0 +1,3 @@
+# Use a Conan home inside this repository, so builds made from here never
+# touch the user-wide ~/.conan2 (cache, profiles, remotes, settings).
+conan_home=./.conan2
