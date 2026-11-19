@@ -1,0 +1,46 @@
+--- a/ImFileDialog.cpp
++++ b/ImFileDialog.cpp
+@@ -24,12 +24,15 @@
+ #include <pwd.h>
+ #endif
+ 
+-#define ICON_SIZE ImGui::GetFont()->FontSize + 3
++#define ICON_SIZE (ImGui::GetFontSize() + 3)
+ #define GUI_ELEMENT_SIZE std::max(GImGui->FontSize + 10.f, 24.f)
+ #define DEFAULT_ICON_SIZE 32
+ #define PI 3.141592f
+ 
+ namespace ifd {
++	// imgui 1.91.4 made ImTextureID an integer (ImU64), so a void* no longer casts to it directly
++	static inline ImTextureID ToTextureID(void* texture) { return (ImTextureID)(intptr_t)texture; }
++
+ 	static const char* GetDefaultFolderIcon();
+ 	static const char* GetDefaultFileIcon();
+ 
+@@ -1067,7 +1070,7 @@
+ 		std::string displayName = node->Path.stem().u8string();
+ 		if (displayName.size() == 0)
+ 			displayName = node->Path.u8string();
+-		if (FolderNode(displayName.c_str(), (ImTextureID)m_getIcon(node->Path), isClicked)) {
++		if (FolderNode(displayName.c_str(), ToTextureID(m_getIcon(node->Path)), isClicked)) {
+ 			if (!node->Read) {
+ 				// cache children if it's not already cached
+ 				if (std::filesystem::exists(node->Path, ec))
+@@ -1124,7 +1127,7 @@
+ 
+ 					// file name
+ 					ImGui::TableSetColumnIndex(0);
+-					ImGui::Image((ImTextureID)m_getIcon(entry.Path), ImVec2(ICON_SIZE, ICON_SIZE));
++					ImGui::Image(ToTextureID(m_getIcon(entry.Path)), ImVec2(ICON_SIZE, ICON_SIZE));
+ 					ImGui::SameLine();
+ 					if (ImGui::Selectable(filename.c_str(), isSelected, ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
+ 						std::error_code ec;
+@@ -1177,7 +1180,7 @@
+ 
+ 				bool isSelected = std::count(m_selections.begin(), m_selections.end(), entry.Path);
+ 
+-				if (FileIcon(filename.c_str(), isSelected, entry.HasIconPreview ? entry.IconPreview : (ImTextureID)m_getIcon(entry.Path), ImVec2(32 + 16 * m_zoom, 32 + 16 * m_zoom), entry.HasIconPreview, entry.IconPreviewWidth, entry.IconPreviewHeight)) {
++				if (FileIcon(filename.c_str(), isSelected, entry.HasIconPreview ? ToTextureID(entry.IconPreview) : ToTextureID(m_getIcon(entry.Path)), ImVec2(32 + 16 * m_zoom, 32 + 16 * m_zoom), entry.HasIconPreview, entry.IconPreviewWidth, entry.IconPreviewHeight)) {
+ 					std::error_code ec;
+ 					bool isDir = std::filesystem::is_directory(entry.Path, ec);
+ 

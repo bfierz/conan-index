@@ -1,0 +1,10 @@
+sources:
+  # 0a74b05, the latest upstream commit: ported to imgui 1.90
+  "cci.20240916":
+    url: "https://github.com/dfranx/ImFileDialog/archive/0a74b0566e556b1a1f2fa0998cc4309e66f5d36c.tar.gz"
+    sha256: "740640a5594a93d5b3f0ff5e82b871f01c217f0d0904666711b752b579d09a4b"
+patches:
+  "cci.20240916":
+    - patch_file: "patches/cci.20240916-0001-support-imgui-1.92.patch"
+      patch_description: "Build with imgui 1.91.4+ (integer ImTextureID) and 1.92 (no ImFont::FontSize)"
+      patch_type: "portability"
