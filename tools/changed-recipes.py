@@ -7,6 +7,7 @@ Prints a JSON object {"include": [{"package": ..., "version": ..., "folder": ...
 that a GitHub Actions matrix can consume. Without --all, only recipes with
 changed files (compared to the merge-base with BASE_REF, default origin/main)
 are listed; with --all, every recipe version in the index is listed.
+Recipes listed in EXCLUDED are never selected.
 A change to a recipe's config.yml or to any file below its recipes/<name>/
 directory selects every version of that recipe.
 """
@@ -18,6 +19,12 @@ from pathlib import Path
 import yaml
 
 RECIPES = Path(__file__).resolve().parent.parent / "recipes"
+
+# Recipes the checks skip, with the reason. Remove an entry once its recipe is
+# ported, so that it is checked again.
+EXCLUDED = {
+    "vcl": "still a Conan 1 recipe (imports from `conans`); its port is tracked in bfierz/vcl#157",
+}
 
 
 def changed_packages(base):
@@ -33,7 +40,7 @@ def main(argv):
     everything = "--all" in argv
     base = args[0] if args else "origin/main"
 
-    packages = sorted(p.name for p in RECIPES.iterdir() if p.is_dir())
+    packages = sorted(p.name for p in RECIPES.iterdir() if p.is_dir() and p.name not in EXCLUDED)
     if not everything:
         wanted = changed_packages(base)
         packages = [p for p in packages if p in wanted]

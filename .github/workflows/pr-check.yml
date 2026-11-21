@@ -70,14 +70,16 @@ jobs:
   # both platforms. A recipe whose validate() rejects the platform (e.g. a
   # Windows-only package on Linux) is reported as skipped, not as a failure.
   build:
-    name: Build ${{ matrix.package }}/${{ matrix.version }} on ${{ matrix.os }}
+    name: Build ${{ matrix.recipe.package }}/${{ matrix.recipe.version }} on ${{ matrix.os }}
     needs: plan
     if: needs.plan.outputs.any_changed == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # windows-latest has Visual Studio 2026, which the CMake that Conan
+        # provides cannot generate for yet: stay on Visual Studio 2022
+        os: [ubuntu-latest, windows-2022]
         recipe: ${{ fromJSON(needs.plan.outputs.changed).include }}
     env:
       PACKAGE: ${{ matrix.recipe.package }}
