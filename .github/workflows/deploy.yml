@@ -32,8 +32,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { name: "Build Windows", os: windows-latest, build_type: Debug }
-          - { name: "Build Windows", os: windows-latest, build_type: Release }
+          - { name: "Build Windows", os: windows-2022, build_type: Debug }
+          - { name: "Build Windows", os: windows-2022, build_type: Release }
           - { name: "Build Linux", os: ubuntu-latest, build_type: Debug }
           - { name: "Build Linux", os: ubuntu-latest, build_type: Release }
     env:
@@ -84,10 +84,17 @@ jobs:
             -s "build_type=$env:BUILD_TYPE" `
             -s "compiler.cppstd=$env:CPPSTD" `
             @extra
+          # Conan exits with 6 when validate() declares the configuration invalid,
+          # e.g. a Windows-only package on Linux: nothing to build, nothing to upload
+          if ($LASTEXITCODE -eq 6) {
+            Write-Host "::notice::$env:CONAN_REFERENCE does not support this platform; skipped."
+            "SKIPPED=true" | Out-File -FilePath $env:GITHUB_ENV -Append
+            exit 0
+          }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Upload
-        if: ${{ github.event.inputs.upload == 'true' && env.CONAN_UPLOAD != '' }}
+        if: ${{ github.event.inputs.upload == 'true' && env.CONAN_UPLOAD != '' && env.SKIPPED != 'true' }}
         shell: pwsh
         run: |
           # Accepts a plain URL or the Conan 1 "url@verify_ssl@name" format
