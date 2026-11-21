@@ -51,3 +51,18 @@ Remotes other than ConanCenter must be added to the local home once, e.g.
   any other version stops with an error. Activate the environment first.
 - To upgrade Conan, change the version in `requirements.txt` and rerun the setup
   script.
+
+## Pull request checks
+
+[pr-check.yml](.github/workflows/pr-check.yml) runs on pull requests that touch `recipes/`:
+
+- **Export**: every recipe version in the index is exported on Linux, which catches
+  a recipe or `config.yml` that no longer parses.
+- **Build**: the recipes the pull request changes (all versions listed in their
+  `config.yml`) are built with `conan create` and their `test_package` is run, in
+  Release with `compiler.cppstd=20`, on Linux and Windows. A recipe whose
+  `validate()` rejects the platform is skipped there, not failed.
+
+`python tools/changed-recipes.py [--all] [BASE_REF]` prints the selected recipe versions,
+to preview what a pull request will build. The "Manual Deploy" workflow remains the way
+to build Debug packages and to upload.

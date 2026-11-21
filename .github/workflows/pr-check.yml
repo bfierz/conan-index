@@ -1,0 +1,130 @@
+name: Pull Request Check
+
+on:
+  pull_request:
+    paths:
+      - 'recipes/**'
+      - 'tools/changed-recipes.py'
+      - 'requirements.txt'
+      - '.github/workflows/pr-check.yml'
+
+concurrency:
+  group: pr-check-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    name: Select recipes
+    runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.select.outputs.changed }}
+      all: ${{ steps.select.outputs.all }}
+      any_changed: ${{ steps.select.outputs.any_changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - id: select
+        env:
+          BASE_REF: origin/${{ github.base_ref }}
+        run: |
+          changed=$(python tools/changed-recipes.py "$BASE_REF")
+          echo "changed=$changed" >> "$GITHUB_OUTPUT"
+          echo "all=$(python tools/changed-recipes.py --all)" >> "$GITHUB_OUTPUT"
+          echo "any_changed=$(echo "$changed" | python -c 'import json,sys; print(str(bool(json.load(sys.stdin)["include"])).lower())')" >> "$GITHUB_OUTPUT"
+          echo "$changed"
+
+  # Cheap check of every recipe in the index: the recipe parses and its
+  # dependency graph resolves. Catches a broken recipe or config.yml early.
+  export:
+    name: Export ${{ matrix.package }}/${{ matrix.version }}
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.all) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install -r requirements.txt
+      - run: conan profile detect --force
+      - name: Export
+        # Matrix values come from config.yml, which a pull request controls:
+        # pass them through the environment, never into the script text
+        env:
+          PACKAGE: ${{ matrix.package }}
+          FOLDER: ${{ matrix.folder }}
+          VERSION: ${{ matrix.version }}
+        run: conan export "recipes/$PACKAGE/$FOLDER" --version "$VERSION"
+
+  # Full build and test_package of the recipes the pull request changes, on
+  # both platforms. A recipe whose validate() rejects the platform (e.g. a
+  # Windows-only package on Linux) is reported as skipped, not as a failure.
+  build:
+    name: Build ${{ matrix.package }}/${{ matrix.version }} on ${{ matrix.os }}
+    needs: plan
+    if: needs.plan.outputs.any_changed == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        recipe: ${{ fromJSON(needs.plan.outputs.changed).include }}
+    env:
+      PACKAGE: ${{ matrix.recipe.package }}
+      VERSION: ${{ matrix.recipe.version }}
+      FOLDER: ${{ matrix.recipe.folder }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install Conan
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          conan --version
+      - name: Configure Conan
+        shell: pwsh
+        run: |
+          conan profile detect --force
+          # Let recipes install their system packages (apt) on the Linux runners
+          if ($IsLinux) {
+            $globalConf = Join-Path (conan config home) "global.conf"
+            Add-Content -Path $globalConf -Value "tools.system.package_manager:mode=install"
+            Add-Content -Path $globalConf -Value "tools.system.package_manager:sudo=True"
+          }
+      - name: Build
+        shell: pwsh
+        run: |
+          conan create "recipes/$env:PACKAGE/$env:FOLDER" `
+            --version "$env:VERSION" `
+            --build=missing `
+            -s build_type=Release `
+            -s compiler.cppstd=20
+          # Conan exits with 6 when validate() declares the configuration invalid
+          if ($LASTEXITCODE -eq 6) {
+            Write-Host "::notice::$env:PACKAGE/$env:VERSION does not support this platform; skipped."
+            exit 0
+          }
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+  result:
+    name: Pull request check
+    if: always()
+    needs: [plan, export, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all jobs to pass
+        run: |
+          if [ "${{ contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled') }}" = "true" ]; then exit 1; fi
