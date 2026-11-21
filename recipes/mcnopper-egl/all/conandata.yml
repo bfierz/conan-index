@@ -1,0 +1,4 @@
+sources:
+  "1.0.19":
+    url: "https://github.com/McNopper/EGL/archive/refs/tags/v1.0.19.tar.gz"
+    sha256: "c915dad3aa80eb8e4970aa3e92602260cb0d2ef492ca88dfc3163a0d4adf8079"
