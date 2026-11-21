@@ -1,5 +1,5 @@
 from conan import ConanFile
-from conan.errors import ConanInvalidConfiguration
+from conan.errors import ConanException, ConanInvalidConfiguration
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 from conan.tools.files import copy, get
 import os
@@ -56,9 +56,18 @@ class McNopperEglConan(ConanFile):
     def package(self):
         copy(self, "LICENSE", self.source_folder, os.path.join(self.package_folder, "licenses"))
         copy(self, "*.h", os.path.join(self.source_folder, "include"), os.path.join(self.package_folder, "include"))
-        # Upstream has no install rules. The archive lands in <source>/lib/<build tree name>/libEGL.lib
-        copy(self, "libEGL.lib", os.path.join(self.source_folder, "lib"), os.path.join(self.package_folder, "lib"),
-             keep_path=False)
+        # Upstream has no install rules and writes the archive to <source>/lib/<build tree name>/libEGL.lib,
+        # so look for it below both the source and the build folder instead of assuming a path
+        archives = [os.path.join(root, name)
+                    for folder in (self.source_folder, self.build_folder)
+                    for root, _, names in os.walk(folder) for name in names
+                    if name.lower() == "libegl.lib"]
+        if not archives:
+            found = [os.path.join(root, name) for root, _, names in os.walk(self.source_folder) for name in names
+                     if name.lower().endswith(".lib")]
+            raise ConanException(f"libEGL.lib was not built; archives found: {found}")
+        copy(self, os.path.basename(archives[0]), os.path.dirname(archives[0]),
+             os.path.join(self.package_folder, "lib"))
 
     def package_info(self):
         # Same package and target names as ConanCenter's egl/system, so consumers need no OS branch
