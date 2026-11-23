@@ -4,6 +4,7 @@ from conan.tools.build import check_min_cppstd
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 from conan.tools.files import copy, get, rmdir
 from conan.tools.microsoft import is_msvc
+from conan.tools.scm import Version
 import os
 
 
@@ -56,6 +57,20 @@ class VclConan(ConanFile):
         "avx512": "AVX 512",
         "neon": "NEON",
     }
+
+    @property
+    def _min_cppstd(self):
+        return 17
+
+    @property
+    def _compilers_minimum_version(self):
+        # First versions with C++17 support
+        return {
+            "apple-clang": "10",
+            "clang": "7",
+            "gcc": "7",
+            "msvc": "191",
+        }
 
     @property
     def _is_x86(self):
@@ -124,7 +139,12 @@ class VclConan(ConanFile):
         return "mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system"
 
     def validate(self):
-        check_min_cppstd(self, 17)
+        check_min_cppstd(self, self._min_cppstd)
+        minimum_version = self._compilers_minimum_version.get(str(self.settings.compiler), False)
+        if minimum_version and Version(self.settings.compiler.version) < minimum_version:
+            raise ConanInvalidConfiguration(
+                f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
+            )
         vectorize = str(self.options.vectorize)
         if vectorize == "neon" and not self._is_arm:
             raise ConanInvalidConfiguration(f"{self.ref}: vectorize=neon needs an ARM arch, not {self.settings.arch}")
