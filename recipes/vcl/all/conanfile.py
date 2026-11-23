@@ -44,19 +44,26 @@ class VclConan(ConanFile):
         "with_webgpu": False,
     }
 
-    # Option value -> VCL_VECTORIZE (src/cmake/VCLConfig.cmake)
-    _vcl_vectorize = {
-        "generic": "Generic",
-        "sse2": "SSE 2",
-        "sse3": "SSE 3",
-        "ssse3": "SSSE 3",
-        "sse4.1": "SSE 4.1",
-        "sse4.2": "SSE 4.2",
-        "avx": "AVX",
-        "avx2": "AVX 2",
-        "avx512": "AVX 512",
-        "neon": "NEON",
+    # Per `vectorize` value: VCL_VECTORIZE, the arch family it needs (None: any), and the PUBLIC
+    # compile options vcl_configure sets for it (src/cmake/VCLConfig.cmake), which CMakeDeps does
+    # not see. "*_32bit" flags are added on 32-bit archs only. MSVC on x86_64 has SSE 2 to SSE 4.2
+    # without a flag, ARM64 has NEON without a flag, and /arch:VFPv4 only exists for 32-bit ARM.
+    _vectorizations = {
+        "generic": {"vcl": "Generic", "arch": None},
+        "sse2": {"vcl": "SSE 2", "arch": "x86", "gcc": ["-msse2"], "msvc_32bit": ["/arch:SSE2"]},
+        "sse3": {"vcl": "SSE 3", "arch": "x86", "gcc": ["-msse3"]},
+        "ssse3": {"vcl": "SSSE 3", "arch": "x86", "gcc": ["-mssse3"]},
+        "sse4.1": {"vcl": "SSE 4.1", "arch": "x86", "gcc": ["-msse4.1"]},
+        "sse4.2": {"vcl": "SSE 4.2", "arch": "x86", "gcc": ["-msse4.2"]},
+        "avx": {"vcl": "AVX", "arch": "x86", "gcc": ["-mavx"], "msvc": ["/arch:AVX"]},
+        "avx2": {"vcl": "AVX 2", "arch": "x86", "gcc": ["-mavx2"], "msvc": ["/arch:AVX2"]},
+        "avx512": {"vcl": "AVX 512", "arch": "x86", "gcc": ["-mavx512f", "-mavx512vl", "-mavx512dq"], "msvc": ["/arch:AVX512"]},
+        "neon": {"vcl": "NEON", "arch": "arm", "gcc_32bit": ["-mfloat-abi=hard", "-mfpu=neon"], "msvc_32bit": ["/arch:VFPv4"]},
     }
+
+    @property
+    def _vectorization(self):
+        return self._vectorizations[str(self.options.vectorize)]
 
     @property
     def _min_cppstd(self):
@@ -149,11 +156,11 @@ class VclConan(ConanFile):
             raise ConanInvalidConfiguration(
                 f"{self.ref} requires C++{self._min_cppstd}, which your compiler does not support."
             )
-        vectorize = str(self.options.vectorize)
-        if vectorize == "neon" and not self._is_arm:
-            raise ConanInvalidConfiguration(f"{self.ref}: vectorize=neon needs an ARM arch, not {self.settings.arch}")
-        if vectorize not in ("generic", "neon") and not self._is_x86:
-            raise ConanInvalidConfiguration(f"{self.ref}: vectorize={vectorize} needs an x86 arch, not {self.settings.arch}")
+        arch_family = self._vectorization["arch"]
+        if arch_family == "arm" and not self._is_arm:
+            raise ConanInvalidConfiguration(f"{self.ref}: vectorize={self.options.vectorize} needs an ARM arch, not {self.settings.arch}")
+        if arch_family == "x86" and not self._is_x86:
+            raise ConanInvalidConfiguration(f"{self.ref}: vectorize={self.options.vectorize} needs an x86 arch, not {self.settings.arch}")
 
     def source(self):
         get(self, **self.conan_data["sources"][self.version], strip_root=True)
@@ -165,7 +172,7 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_BUILD_BENCHMARKS"] = False
         tc.cache_variables["VCL_BUILD_EXAMPLES"] = False
         tc.cache_variables["VCL_BUILD_TOOLS"] = False
-        tc.cache_variables["VCL_VECTORIZE"] = self._vcl_vectorize[str(self.options.vectorize)]
+        tc.cache_variables["VCL_VECTORIZE"] = self._vectorization["vcl"]
         tc.cache_variables["VCL_OPENGL_SUPPORT"] = bool(self.options.with_opengl)
         tc.cache_variables["VCL_EGL_SUPPORT"] = bool(self.options.get_safe("with_egl"))
         tc.cache_variables["VCL_D3D12_SUPPORT"] = bool(self.options.get_safe("with_d3d12"))
@@ -187,29 +194,13 @@ class VclConan(ConanFile):
 
     @property
     def _simd_flags(self):
-        # The PUBLIC compile options of vcl's targets for VCL_VECTORIZE (src/cmake/VCLConfig.cmake),
-        # which CMakeDeps does not see
-        vectorize = str(self.options.vectorize)
+        # The gcc flags also apply to Clang, as in vcl_configure
+        compiler = "msvc" if is_msvc(self) else "gcc"
         is_32bit = str(self.settings.arch) in ("x86", "armv7", "armv7hf", "armv7s", "armv7k")
-        if is_msvc(self):
-            # MSVC on x86_64 has SSE 2 to SSE 4.2 without a flag
-            flags = {"avx512": ["/arch:AVX512"], "avx2": ["/arch:AVX2"], "avx": ["/arch:AVX"]}
-            if is_32bit:
-                # ARM64 has NEON without a flag, and /arch:VFPv4 only exists for 32-bit ARM
-                flags.update({"sse2": ["/arch:SSE2"], "neon": ["/arch:VFPv4"]})
-            return flags.get(vectorize, [])
-        flags = {
-            "avx512": ["-mavx512f", "-mavx512vl", "-mavx512dq"],
-            "avx2": ["-mavx2"],
-            "avx": ["-mavx"],
-            "sse4.2": ["-msse4.2"],
-            "sse4.1": ["-msse4.1"],
-            "ssse3": ["-mssse3"],
-            "sse3": ["-msse3"],
-            "sse2": ["-msse2"],
-            "neon": ["-mfloat-abi=hard", "-mfpu=neon"] if is_32bit else [],
-        }.get(vectorize, [])
-        if self.settings.os == "Emscripten" and vectorize != "generic":
+        flags = list(self._vectorization.get(compiler, []))
+        if is_32bit:
+            flags.extend(self._vectorization.get(f"{compiler}_32bit", []))
+        if compiler == "gcc" and self.settings.os == "Emscripten" and self.options.vectorize != "generic":
             flags.append("-msimd128")
         return flags
 
