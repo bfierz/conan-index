@@ -225,7 +225,14 @@ class VclConan(ConanFile):
         self.cpp_info.set_property("cmake_target_name", "vcl::vcl")
 
         core = self._add_component("core", "vcl_core", ["eigen::eigen", "abseil::abseil", "fmt::fmt"])
+        # vcl_configure (src/cmake/VCLConfig.cmake) sets these PUBLIC, but CMakeDeps does not see
+        # them. Its PUBLIC warning flags are left out: consumers choose their own warnings.
         core.cxxflags = self._simd_flags
+        if is_msvc(self):
+            # Exceptions and RTTI
+            core.cxxflags.extend(["/EHsc", "/GR"])
+        if self.settings.compiler in ("clang", "apple-clang"):
+            core.defines = ["__STRICT_ANSI__"]
         self._add_component("math", "vcl.math", ["core"])
         self._add_component("geometry", "vcl.geometry", ["core"])
         self._add_component("components", "vcl.components", ["core"])

@@ -19,6 +19,11 @@
 #	error "vcl is built for SSE 3, but the consumer does not get the SSE 3 flag"
 #endif
 
+// vcl's targets define __STRICT_ANSI__ for Clang, also in GNU mode (-std=gnu++17)
+#if defined(__clang__) && !defined(__STRICT_ANSI__)
+#	error "vcl defines __STRICT_ANSI__ for Clang, but the consumer does not get it"
+#endif
+
 // The instruction set named like the recipe's `vectorize` option
 #if defined(VCL_VECTORIZE_AVX512)
 #	define VCL_TEST_VECTORIZE "avx512"
