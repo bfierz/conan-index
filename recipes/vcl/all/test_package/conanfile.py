@@ -1,6 +1,6 @@
 from conan import ConanFile
-from conan.tools.build import can_run
 from conan.errors import ConanException
+from conan.tools.build import can_run
 from conan.tools.cmake import cmake_layout, CMake, CMakeToolchain
 import io
 import os
@@ -40,7 +40,7 @@ class TestPackageConan(ConanFile):
             output = io.StringIO()
             self.run(bin_path, output, env="conanrun")
             # The package must be built for the instruction set its option selects
-            vectorize = self.dependencies["vcl"].options.vectorize
+            vectorize = self.dependencies[self.tested_reference_str].options.vectorize
             # Compare whole lines: on Windows the program's output ends its lines with \r\n
             if f"vcl: instruction set {vectorize}" not in output.getvalue().splitlines():
                 raise ConanException(f"vcl was not built for vectorize={vectorize}; test_package printed:\n{output.getvalue()}")

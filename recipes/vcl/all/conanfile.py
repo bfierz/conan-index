@@ -87,6 +87,31 @@ class VclConan(ConanFile):
     def _is_arm(self):
         return str(self.settings.arch).startswith(("arm", "aarch"))
 
+    @property
+    def _with_native_webgpu(self):
+        # WebGPU through Dawn; Emscripten ships its own WebGPU bindings
+        return self.options.with_webgpu and self.settings.os != "Emscripten"
+
+    @property
+    def _egl(self):
+        # The Conan reference and the component to require; both export the CMake target egl::egl.
+        # mcnopper-egl comes from this index.
+        if self.settings.os == "Windows":
+            return {"ref": "mcnopper-egl/1.0.19", "component": "mcnopper-egl::mcnopper-egl"}
+        return {"ref": "egl/system", "component": "egl::egl"}
+
+    @property
+    def _simd_flags(self):
+        # The gcc flags also apply to Clang, as in vcl_configure
+        compiler = "msvc" if is_msvc(self) else "gcc"
+        is_32bit = str(self.settings.arch) in ("x86", "armv7", "armv7hf", "armv7s", "armv7k")
+        flags = list(self._vectorization.get(compiler, []))
+        if is_32bit:
+            flags.extend(self._vectorization.get(f"{compiler}_32bit", []))
+        if compiler == "gcc" and self.settings.os == "Emscripten" and self.options.vectorize != "generic":
+            flags.append("-msimd128")
+        return flags
+
     def config_options(self):
         if self.settings.os == "Windows":
             del self.options.fPIC
@@ -122,7 +147,7 @@ class VclConan(ConanFile):
             self.requires("glew/2.2.0", transitive_headers=True)
             if self.options.get_safe("with_egl"):
                 # vcl's OpenGL context header includes <EGL/egl.h>
-                self.requires(self._egl_ref, transitive_headers=True)
+                self.requires(self._egl["ref"], transitive_headers=True)
         if self.options.get_safe("with_d3d12"):
             # vcl's D3D12 headers include <directx/d3dx12.h>
             self.requires("directx-headers/1.614.0", transitive_headers=True)
@@ -134,20 +159,10 @@ class VclConan(ConanFile):
             self.requires("vulkan-headers/1.4.350.0", transitive_headers=True)
             self.requires("vulkan-loader/1.4.350.0")
             self.requires("spirv-cross/cci.20211113")
-        if self._needs_dawn:
+        if self._with_native_webgpu:
             # dawn comes from this index. vcl uses only its C API (webgpu/webgpu.h), so vcl stays
             # on C++17, while Dawn itself needs C++20: profiles set dawn/*:compiler.cppstd=20.
             self.requires("dawn/159.0.8154", transitive_headers=True)
-
-    @property
-    def _needs_dawn(self):
-        # Emscripten ships its own WebGPU bindings
-        return self.options.with_webgpu and self.settings.os != "Emscripten"
-
-    @property
-    def _egl_ref(self):
-        # mcnopper-egl comes from this index; both export egl::egl
-        return "mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system"
 
     def validate(self):
         check_min_cppstd(self, self._min_cppstd)
@@ -192,18 +207,6 @@ class VclConan(ConanFile):
         # CMakeDeps generates the config files from package_info()
         rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
 
-    @property
-    def _simd_flags(self):
-        # The gcc flags also apply to Clang, as in vcl_configure
-        compiler = "msvc" if is_msvc(self) else "gcc"
-        is_32bit = str(self.settings.arch) in ("x86", "armv7", "armv7hf", "armv7s", "armv7k")
-        flags = list(self._vectorization.get(compiler, []))
-        if is_32bit:
-            flags.extend(self._vectorization.get(f"{compiler}_32bit", []))
-        if compiler == "gcc" and self.settings.os == "Emscripten" and self.options.vectorize != "generic":
-            flags.append("-msimd128")
-        return flags
-
     def _add_component(self, name, lib, requires):
         component = self.cpp_info.components[name]
         component.set_property("cmake_target_name", f"vcl::{name}")
@@ -239,8 +242,7 @@ class VclConan(ConanFile):
             if self.settings.os != "Emscripten":
                 graphics_requires.extend(["opengl::opengl", "glew::glew"])
             if self.options.get_safe("with_egl"):
-                egl = self._egl_ref.split("/")[0]
-                graphics_requires.append(f"{egl}::{egl}")
+                graphics_requires.append(self._egl["component"])
                 graphics_defines.append("VCL_EGL_SUPPORT")
         if self.options.get_safe("with_d3d12"):
             graphics_requires.append("directx-headers::directx-headers")
@@ -255,7 +257,7 @@ class VclConan(ConanFile):
             graphics_defines.append("VCL_VULKAN_SUPPORT")
         if self.options.with_webgpu:
             graphics_defines.append("VCL_WEBGPU_SUPPORT")
-            if self._needs_dawn:
+            if self._with_native_webgpu:
                 graphics_requires.append("dawn::dawn")
         graphics = self._add_component("graphics", "vcl_graphics", graphics_requires)
         graphics.defines = graphics_defines
