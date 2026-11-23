@@ -22,10 +22,12 @@ class VclConan(ConanFile):
     options = {
         "fPIC": [True, False],
         "with_d3d12": [True, False],
+        "with_vulkan": [True, False],
     }
     default_options = {
         "fPIC": True,
         "with_d3d12": False,
+        "with_vulkan": False,
     }
 
     # Instruction set passed as VCL_VECTORIZE; it is upstream's default
@@ -49,6 +51,14 @@ class VclConan(ConanFile):
         if self.options.get_safe("with_d3d12"):
             # vcl's D3D12 headers include <directx/d3dx12.h>
             self.requires("directx-headers/1.614.0", transitive_headers=True)
+        if self.options.with_vulkan:
+            # Only the vendor-neutral headers and the loader, which finds the driver at runtime:
+            # no Vulkan SDK is needed. The validation layers are used at runtime only.
+            # spirv-cross/cci.20211113 declares CMake < 3.5, which CMake 4 rejects when it is built
+            # from source: the profile sets spirv-cross/*:CMAKE_POLICY_VERSION_MINIMUM=3.5 in [buildenv].
+            self.requires("vulkan-headers/1.4.350.0", transitive_headers=True)
+            self.requires("vulkan-loader/1.4.350.0")
+            self.requires("spirv-cross/cci.20211113")
 
     def validate(self):
         check_min_cppstd(self, 17)
@@ -67,6 +77,7 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_BUILD_TOOLS"] = False
         tc.cache_variables["VCL_VECTORIZE"] = self._vectorize
         tc.cache_variables["VCL_D3D12_SUPPORT"] = bool(self.options.get_safe("with_d3d12"))
+        tc.cache_variables["VCL_VULKAN_SUPPORT"] = bool(self.options.with_vulkan)
         tc.generate()
         CMakeDeps(self).generate()
 
@@ -119,6 +130,10 @@ class VclConan(ConanFile):
             if self.settings.compiler == "gcc":
                 # MinGW's RPC headers declare an older version than the D3D12 headers require
                 graphics_defines.append("__REQUIRED_RPCNDR_H_VERSION__=475")
+        if self.options.with_vulkan:
+            # spirv-cross is PRIVATE upstream, but vcl_graphics is static, so consumers link it
+            graphics_requires.extend(["vulkan-headers::vulkan-headers", "vulkan-loader::vulkan-loader", "spirv-cross::spirv-cross"])
+            graphics_defines.append("VCL_VULKAN_SUPPORT")
         graphics = self._add_component("graphics", "vcl_graphics", graphics_requires)
         graphics.defines = graphics_defines
         graphics.system_libs = graphics_system_libs
