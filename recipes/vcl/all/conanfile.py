@@ -86,6 +86,9 @@ class VclConan(ConanFile):
         else:
             # Direct3D 12 is only packaged for Windows
             del self.options.with_d3d12
+        if self.settings.os == "Emscripten":
+            # Emscripten provides OpenGL ES through WebGL; upstream has no EGL support there
+            del self.options.with_egl
         # The default is upstream's (SSE 4.1); ARM falls back to NEON, any other arch to Generic
         if self._is_arm:
             self.options.vectorize = "neon"
@@ -105,11 +108,12 @@ class VclConan(ConanFile):
         self.requires("eigen/3.4.1", transitive_headers=True)
         self.requires("abseil/20250814.2", transitive_headers=True)
         self.requires("fmt/11.2.0", transitive_headers=True)
-        if self.options.with_opengl:
+        if self.options.with_opengl and self.settings.os != "Emscripten":
             # vcl's OpenGL headers include <GL/glew.h>. The system OpenGL is driver-bound.
+            # Emscripten's own OpenGL replaces both (src/libs/vcl.graphics/CMakeLists.txt).
             self.requires("opengl/system", transitive_headers=True)
             self.requires("glew/2.2.0", transitive_headers=True)
-            if self.options.with_egl:
+            if self.options.get_safe("with_egl"):
                 # vcl's OpenGL context header includes <EGL/egl.h>
                 self.requires(self._egl_ref, transitive_headers=True)
         if self.options.get_safe("with_d3d12"):
@@ -232,11 +236,11 @@ class VclConan(ConanFile):
         graphics_requires = ["core", "abseil::abseil"]
         graphics_defines = []
         graphics_system_libs = []
-        graphics_link_flags = []
         if self.options.with_opengl:
-            graphics_requires.extend(["opengl::opengl", "glew::glew"])
             graphics_defines.append("VCL_OPENGL_SUPPORT")
-            if self.options.with_egl:
+            if self.settings.os != "Emscripten":
+                graphics_requires.extend(["opengl::opengl", "glew::glew"])
+            if self.options.get_safe("with_egl"):
                 egl = self._egl_ref.split("/")[0]
                 graphics_requires.append(f"{egl}::{egl}")
                 graphics_defines.append("VCL_EGL_SUPPORT")
@@ -255,11 +259,6 @@ class VclConan(ConanFile):
             graphics_defines.append("VCL_WEBGPU_SUPPORT")
             if self._needs_dawn:
                 graphics_requires.append("dawn::dawn")
-            else:
-                # Emscripten's bindings are linked in by a flag (upstream's WebGPU tests use it)
-                graphics_link_flags.append("-sUSE_WEBGPU=1")
         graphics = self._add_component("graphics", "vcl_graphics", graphics_requires)
         graphics.defines = graphics_defines
         graphics.system_libs = graphics_system_libs
-        graphics.exelinkflags = graphics_link_flags
-        graphics.sharedlinkflags = graphics_link_flags
