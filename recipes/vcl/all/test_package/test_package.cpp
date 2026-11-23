@@ -1,6 +1,47 @@
 // VCL configuration
 #include <vcl/config/global.h>
 
+// The package's instruction set (vcl/config/config.h) must be enabled in this compiler, which
+// only happens through the flags the vcl targets carry. MSVC defines no macros for SSE.
+#if defined(VCL_VECTORIZE_AVX512) && !(defined(__AVX512F__) && defined(__AVX512VL__) && defined(__AVX512DQ__))
+#	error "vcl is built for AVX 512, but the consumer does not get the AVX 512 flags"
+#elif defined(VCL_VECTORIZE_AVX2) && !defined(__AVX2__)
+#	error "vcl is built for AVX 2, but the consumer does not get the AVX 2 flag"
+#elif defined(VCL_VECTORIZE_AVX) && !defined(__AVX__)
+#	error "vcl is built for AVX, but the consumer does not get the AVX flag"
+#elif !defined(_MSC_VER) && defined(VCL_VECTORIZE_SSE4_2) && !defined(__SSE4_2__)
+#	error "vcl is built for SSE 4.2, but the consumer does not get the SSE 4.2 flag"
+#elif !defined(_MSC_VER) && defined(VCL_VECTORIZE_SSE4_1) && !defined(__SSE4_1__)
+#	error "vcl is built for SSE 4.1, but the consumer does not get the SSE 4.1 flag"
+#elif !defined(_MSC_VER) && defined(VCL_VECTORIZE_SSSE3) && !defined(__SSSE3__)
+#	error "vcl is built for SSSE 3, but the consumer does not get the SSSE 3 flag"
+#elif !defined(_MSC_VER) && defined(VCL_VECTORIZE_SSE3) && !defined(__SSE3__)
+#	error "vcl is built for SSE 3, but the consumer does not get the SSE 3 flag"
+#endif
+
+// The instruction set named like the recipe's `vectorize` option
+#if defined(VCL_VECTORIZE_AVX512)
+#	define VCL_TEST_VECTORIZE "avx512"
+#elif defined(VCL_VECTORIZE_AVX2)
+#	define VCL_TEST_VECTORIZE "avx2"
+#elif defined(VCL_VECTORIZE_AVX)
+#	define VCL_TEST_VECTORIZE "avx"
+#elif defined(VCL_VECTORIZE_SSE4_2)
+#	define VCL_TEST_VECTORIZE "sse4.2"
+#elif defined(VCL_VECTORIZE_SSE4_1)
+#	define VCL_TEST_VECTORIZE "sse4.1"
+#elif defined(VCL_VECTORIZE_SSSE3)
+#	define VCL_TEST_VECTORIZE "ssse3"
+#elif defined(VCL_VECTORIZE_SSE3)
+#	define VCL_TEST_VECTORIZE "sse3"
+#elif defined(VCL_VECTORIZE_SSE2)
+#	define VCL_TEST_VECTORIZE "sse2"
+#elif defined(VCL_VECTORIZE_NEON)
+#	define VCL_TEST_VECTORIZE "neon"
+#else
+#	define VCL_TEST_VECTORIZE "generic"
+#endif
+
 // Include the relevant parts from the library
 #include <vcl/components/entitymanager.h>
 #include <vcl/compute/context.h>
@@ -60,6 +101,7 @@ int main()
 	Vcl::Components::EntityManager entities;
 	entities.destroy(entities.create());
 
+	std::printf("vcl: instruction set %s\n", VCL_TEST_VECTORIZE);
 	std::printf("vcl: SIMD, math, geometry and components work\n");
 	return 0;
 }
