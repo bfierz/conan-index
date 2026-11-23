@@ -65,6 +65,9 @@ bool testD3D12();
 #ifdef TEST_VULKAN
 bool testVulkan();
 #endif
+#ifdef TEST_WEBGPU
+bool testWebGPU();
+#endif
 
 int main()
 {
@@ -132,6 +135,10 @@ int main()
 #endif
 #ifdef TEST_VULKAN
 	if (!testVulkan())
+		return 1;
+#endif
+#ifdef TEST_WEBGPU
+	if (!testWebGPU())
 		return 1;
 #endif
 

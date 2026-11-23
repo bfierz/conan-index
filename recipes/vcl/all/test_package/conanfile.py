@@ -24,8 +24,9 @@ class TestPackageConan(ConanFile):
         tc.cache_variables["TEST_OPENGL"] = bool(vcl_options.get_safe("with_opengl"))
         tc.cache_variables["TEST_EGL"] = bool(vcl_options.get_safe("with_egl"))
         tc.cache_variables["TEST_D3D12"] = bool(vcl_options.get_safe("with_d3d12"))
-        # Exists on every OS: read it directly, so that a recipe without it fails here
+        # Exist on every OS: read them directly, so that a recipe without them fails here
         tc.cache_variables["TEST_VULKAN"] = bool(vcl_options.with_vulkan)
+        tc.cache_variables["TEST_WEBGPU"] = bool(vcl_options.with_webgpu)
         tc.generate()
 
     def build(self):
