@@ -6,19 +6,21 @@
 #include <vcl/compute/context.h>
 #include <vcl/core/simd/vectorscalar.h>
 #include <vcl/geometry/distancePoint3Triangle3.h>
+#include <vcl/graphics/matrixfactory.h>
 #include <vcl/math/math.h>
 #include <vcl/math/polardecomposition.h>
-
-// Graphics backends (vcl::graphics), which define their VCL_*_SUPPORT macro
-#ifdef VCL_OPENGL_SUPPORT
-#	include <vcl/graphics/opengl/context.h>
-#	include <vcl/graphics/opengl/gl.h>
-#endif
 
 // C++ standard library
 #include <cmath>
 #include <cstdio>
-#include <type_traits>
+
+// Graphics backends, one test_<backend>.cpp each. They return false on failure.
+#ifdef TEST_OPENGL
+bool testOpenGL();
+#endif
+#ifdef TEST_D3D12
+bool testD3D12();
+#endif
 
 int main()
 {
@@ -67,25 +69,24 @@ int main()
 	Vcl::Components::EntityManager entities;
 	entities.destroy(entities.create());
 
-#ifdef VCL_OPENGL_SUPPORT
-	// OpenGL (vcl::graphics): the format tables need no GL context
-	if (Vcl::Graphics::OpenGL::GL::toRenderType(Vcl::Graphics::SurfaceFormat::R8G8B8A8_UNORM).internalFormat() != GL_RGBA8)
+	// Graphics (vcl::graphics): a Direct3D projection maps the near plane to depth 0
+	const Vcl::Graphics::Direct3D::MatrixFactory factory;
+	const Eigen::Vector4f p = factory.createPerspectiveFov(1.0f, 10.0f, 1.0f, 1.0f) * Eigen::Vector4f{ 0, 0, -1, 1 };
+	if (std::fabs(p.z() / p.w()) > 1e-5f)
 	{
-		std::printf("OpenGL render type failed\n");
+		std::printf("Perspective projection failed\n");
 		return 1;
 	}
-	std::printf("vcl: OpenGL works\n");
-#endif
-#ifdef VCL_EGL_SUPPORT
-	// EGL (vcl::graphics): the EGL context constructor exists. Referencing the context code
-	// links it, and with it EGL, without creating a context.
-	static_assert(std::is_constructible_v<Vcl::Graphics::OpenGL::Context, EGLDisplay, EGLSurface>, "EGL context constructor");
-	const char* (*volatile profile_type)() = &Vcl::Graphics::OpenGL::Context::profileType;
-	if (profile_type == nullptr)
+
+#ifdef TEST_OPENGL
+	if (!testOpenGL())
 		return 1;
-	std::printf("vcl: EGL context links\n");
+#endif
+#ifdef TEST_D3D12
+	if (!testD3D12())
+		return 1;
 #endif
 
-	std::printf("vcl: SIMD, math, geometry and components work\n");
+	std::printf("vcl: SIMD, math, geometry, components and graphics work\n");
 	return 0;
 }

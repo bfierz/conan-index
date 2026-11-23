@@ -24,17 +24,13 @@ class VclConan(ConanFile):
         "fPIC": [True, False],
         "with_opengl": [True, False],
         "with_egl": [True, False],
+        "with_d3d12": [True, False],
     }
     default_options = {
         "fPIC": True,
         "with_opengl": False,
         "with_egl": False,
-    }
-
-    # Graphics backend option -> VCL_* cache variable, which vcl also defines PUBLIC on vcl_graphics
-    _graphics_backends = {
-        "with_opengl": "VCL_OPENGL_SUPPORT",
-        "with_egl": "VCL_EGL_SUPPORT",
+        "with_d3d12": False,
     }
 
     # Instruction set passed as VCL_VECTORIZE; it is upstream's default
@@ -43,6 +39,9 @@ class VclConan(ConanFile):
     def config_options(self):
         if self.settings.os == "Windows":
             del self.options.fPIC
+        else:
+            # Direct3D 12 is only packaged for Windows
+            del self.options.with_d3d12
 
     def configure(self):
         # EGL creates OpenGL contexts
@@ -57,21 +56,21 @@ class VclConan(ConanFile):
         self.requires("eigen/3.4.1", transitive_headers=True)
         self.requires("abseil/20250814.2", transitive_headers=True)
         self.requires("fmt/11.2.0", transitive_headers=True)
-        for ref in self._graphics_requires:
-            self.requires(ref, transitive_headers=True)
+        if self.options.with_opengl:
+            # vcl's OpenGL headers include <GL/glew.h>. The system OpenGL is driver-bound.
+            self.requires("opengl/system", transitive_headers=True)
+            self.requires("glew/2.2.0", transitive_headers=True)
+            if self.options.with_egl:
+                # vcl's OpenGL context header includes <EGL/egl.h>
+                self.requires(self._egl_ref, transitive_headers=True)
+        if self.options.get_safe("with_d3d12"):
+            # vcl's D3D12 headers include <directx/d3dx12.h>
+            self.requires("directx-headers/1.614.0", transitive_headers=True)
 
     @property
-    def _graphics_requires(self):
-        # What vcl::graphics links, per enabled backend; empty without a backend.
-        # vcl's public headers include all of them.
-        refs = []
-        if self.options.with_opengl:
-            # The system OpenGL is driver-bound
-            refs += ["opengl/system", "glew/2.2.0"]
-            if self.options.with_egl:
-                # mcnopper-egl comes from this index; both export egl::egl
-                refs.append("mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system")
-        return refs
+    def _egl_ref(self):
+        # mcnopper-egl comes from this index; both export egl::egl
+        return "mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system"
 
     def validate(self):
         check_min_cppstd(self, 17)
@@ -89,8 +88,9 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_BUILD_EXAMPLES"] = False
         tc.cache_variables["VCL_BUILD_TOOLS"] = False
         tc.cache_variables["VCL_VECTORIZE"] = self._vectorize
-        for option, variable in self._graphics_backends.items():
-            tc.cache_variables[variable] = bool(self.options.get_safe(option))
+        tc.cache_variables["VCL_OPENGL_SUPPORT"] = bool(self.options.with_opengl)
+        tc.cache_variables["VCL_EGL_SUPPORT"] = bool(self.options.get_safe("with_egl"))
+        tc.cache_variables["VCL_D3D12_SUPPORT"] = bool(self.options.get_safe("with_d3d12"))
         tc.generate()
         CMakeDeps(self).generate()
 
@@ -131,9 +131,25 @@ class VclConan(ConanFile):
         self._add_component("components", "vcl.components", ["core"])
         self._add_component("compute", "vcl_compute", ["core"])
 
-        # vcl_graphics is always built, but only packaged as a component with a backend
-        graphics_requires = self._graphics_requires
-        if graphics_requires:
-            names = [ref.split("/")[0] for ref in graphics_requires]
-            graphics = self._add_component("graphics", "vcl_graphics", ["core"] + [f"{name}::{name}" for name in names])
-            graphics.defines = [variable for option, variable in self._graphics_backends.items() if self.options.get_safe(option)]
+        # vcl_graphics is built in every configuration. Each enabled backend adds its
+        # requires, defines and system libraries (src/libs/vcl.graphics/CMakeLists.txt).
+        graphics_requires = ["core", "abseil::abseil"]
+        graphics_defines = []
+        graphics_system_libs = []
+        if self.options.with_opengl:
+            graphics_requires.extend(["opengl::opengl", "glew::glew"])
+            graphics_defines.append("VCL_OPENGL_SUPPORT")
+            if self.options.with_egl:
+                egl = self._egl_ref.split("/")[0]
+                graphics_requires.append(f"{egl}::{egl}")
+                graphics_defines.append("VCL_EGL_SUPPORT")
+        if self.options.get_safe("with_d3d12"):
+            graphics_requires.append("directx-headers::directx-headers")
+            graphics_defines.append("VCL_D3D12_SUPPORT")
+            graphics_system_libs.extend(["d3d12", "dxgi", "dxguid"])
+            if self.settings.compiler == "gcc":
+                # MinGW's RPC headers declare an older version than the D3D12 headers require
+                graphics_defines.append("__REQUIRED_RPCNDR_H_VERSION__=475")
+        graphics = self._add_component("graphics", "vcl_graphics", graphics_requires)
+        graphics.defines = graphics_defines
+        graphics.system_libs = graphics_system_libs
