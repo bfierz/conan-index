@@ -20,7 +20,9 @@ class VclConan(ConanFile):
     # vcl only builds static libraries
     package_type = "static-library"
     settings = "os", "arch", "compiler", "build_type"
-    # The graphics backend options are named as in upstream's conanfile.py
+    # The graphics backend options are named as in upstream's conanfile.py.
+    # CI (pr-check.yml) builds only the default options; with_webgpu is verified by hand,
+    # because building Dawn from source takes hours.
     options = {
         "fPIC": [True, False],
         # SIMD instruction set; vcl's headers switch on it, so consumers get its compiler flags
@@ -29,6 +31,7 @@ class VclConan(ConanFile):
         "with_egl": [True, False],
         "with_d3d12": [True, False],
         "with_vulkan": [True, False],
+        "with_webgpu": [True, False],
     }
     default_options = {
         "fPIC": True,
@@ -37,6 +40,7 @@ class VclConan(ConanFile):
         "with_egl": False,
         "with_d3d12": False,
         "with_vulkan": False,
+        "with_webgpu": False,
     }
 
     # Option value -> VCL_VECTORIZE (src/cmake/VCLConfig.cmake)
@@ -104,6 +108,15 @@ class VclConan(ConanFile):
             self.requires("vulkan-headers/1.4.350.0", transitive_headers=True)
             self.requires("vulkan-loader/1.4.350.0")
             self.requires("spirv-cross/cci.20211113")
+        if self._needs_dawn:
+            # dawn comes from this index. vcl uses only its C API (webgpu/webgpu.h), so vcl stays
+            # on C++17, while Dawn itself needs C++20: profiles set dawn/*:compiler.cppstd=20.
+            self.requires("dawn/159.0.8154", transitive_headers=True)
+
+    @property
+    def _needs_dawn(self):
+        # Emscripten ships its own WebGPU bindings
+        return self.options.with_webgpu and self.settings.os != "Emscripten"
 
     @property
     def _egl_ref(self):
@@ -133,6 +146,7 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_EGL_SUPPORT"] = bool(self.options.get_safe("with_egl"))
         tc.cache_variables["VCL_D3D12_SUPPORT"] = bool(self.options.get_safe("with_d3d12"))
         tc.cache_variables["VCL_VULKAN_SUPPORT"] = bool(self.options.with_vulkan)
+        tc.cache_variables["VCL_WEBGPU_SUPPORT"] = bool(self.options.with_webgpu)
         tc.generate()
         CMakeDeps(self).generate()
 
@@ -198,6 +212,7 @@ class VclConan(ConanFile):
         graphics_requires = ["core", "abseil::abseil"]
         graphics_defines = []
         graphics_system_libs = []
+        graphics_link_flags = []
         if self.options.with_opengl:
             graphics_requires.extend(["opengl::opengl", "glew::glew"])
             graphics_defines.append("VCL_OPENGL_SUPPORT")
@@ -216,6 +231,15 @@ class VclConan(ConanFile):
             # spirv-cross is PRIVATE upstream, but vcl_graphics is static, so consumers link it
             graphics_requires.extend(["vulkan-headers::vulkan-headers", "vulkan-loader::vulkan-loader", "spirv-cross::spirv-cross"])
             graphics_defines.append("VCL_VULKAN_SUPPORT")
+        if self.options.with_webgpu:
+            graphics_defines.append("VCL_WEBGPU_SUPPORT")
+            if self._needs_dawn:
+                graphics_requires.append("dawn::dawn")
+            else:
+                # Emscripten's bindings are linked in by a flag (upstream's WebGPU tests use it)
+                graphics_link_flags.append("-sUSE_WEBGPU=1")
         graphics = self._add_component("graphics", "vcl_graphics", graphics_requires)
         graphics.defines = graphics_defines
         graphics.system_libs = graphics_system_libs
+        graphics.exelinkflags = graphics_link_flags
+        graphics.sharedlinkflags = graphics_link_flags
