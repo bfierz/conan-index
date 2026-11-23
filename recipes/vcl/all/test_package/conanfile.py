@@ -40,5 +40,6 @@ class TestPackageConan(ConanFile):
             self.run(bin_path, output, env="conanrun")
             # The package must be built for the instruction set its option selects
             vectorize = self.dependencies["vcl"].options.vectorize
-            if f"vcl: instruction set {vectorize}\n" not in output.getvalue():
-                raise ConanException(f"vcl was not built for vectorize={vectorize}")
+            # Compare whole lines: on Windows the program's output ends its lines with \r\n
+            if f"vcl: instruction set {vectorize}" not in output.getvalue().splitlines():
+                raise ConanException(f"vcl was not built for vectorize={vectorize}; test_package printed:\n{output.getvalue()}")
