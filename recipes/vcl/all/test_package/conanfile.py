@@ -20,6 +20,8 @@ class TestPackageConan(ConanFile):
         vcl_options = self.dependencies[self.tested_reference_str].options
         tc = CMakeToolchain(self)
         tc.cache_variables["TEST_D3D12"] = bool(vcl_options.get_safe("with_d3d12"))
+        # Exists on every OS: read it directly, so that a recipe without it fails here
+        tc.cache_variables["TEST_VULKAN"] = bool(vcl_options.with_vulkan)
         tc.generate()
 
     def build(self):

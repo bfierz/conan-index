@@ -18,6 +18,9 @@
 #ifdef TEST_D3D12
 bool testD3D12();
 #endif
+#ifdef TEST_VULKAN
+bool testVulkan();
+#endif
 
 int main()
 {
@@ -77,6 +80,10 @@ int main()
 
 #ifdef TEST_D3D12
 	if (!testD3D12())
+		return 1;
+#endif
+#ifdef TEST_VULKAN
+	if (!testVulkan())
 		return 1;
 #endif
 
