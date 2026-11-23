@@ -1,16 +1,30 @@
-cmake_minimum_required(VERSION 3.1.0)
-project(test_package CXX)
+cmake_minimum_required(VERSION 3.15)
+project(test_package LANGUAGES CXX)
 
-if(MSVC)
-	set(CMAKE_C_FLAGS "/arch:AVX")
-	set(CMAKE_CXX_FLAGS "/arch:AVX")
-elseif(UNIX)
-	set(CMAKE_C_FLAGS "-mavx")
-	set(CMAKE_CXX_FLAGS "-mavx")
-endif()
+find_package(vcl REQUIRED CONFIG)
 
-include(${CMAKE_BINARY_DIR}/conanbuildinfo.cmake)
-conan_basic_setup(TARGETS)
-
+# The SIMD compiler flags come with the vcl targets, the C++ standard from the profile
 add_executable(${PROJECT_NAME} test_package.cpp)
-conan_target_link_libraries(${PROJECT_NAME})
+target_link_libraries(${PROJECT_NAME} PRIVATE vcl::core vcl::math vcl::geometry vcl::components vcl::compute vcl::graphics)
+
+# Each enabled graphics backend adds a source file and a TEST_<BACKEND> define
+if(TEST_OPENGL)
+	target_sources(${PROJECT_NAME} PRIVATE test_opengl.cpp)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_OPENGL)
+	# EGL is tested as part of OpenGL
+	if(TEST_EGL)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_EGL)
+	endif()
+endif()
+if(TEST_D3D12)
+	target_sources(${PROJECT_NAME} PRIVATE test_d3d12.cpp)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_D3D12)
+endif()
+if(TEST_VULKAN)
+	target_sources(${PROJECT_NAME} PRIVATE test_vulkan.cpp)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_VULKAN)
+endif()
+if(TEST_WEBGPU)
+	target_sources(${PROJECT_NAME} PRIVATE test_webgpu.cpp)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_WEBGPU)
+endif()

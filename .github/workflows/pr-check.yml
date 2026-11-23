@@ -100,6 +100,9 @@ jobs:
         shell: pwsh
         run: |
           conan profile detect --force
+          # spirv-cross/cci.20211113 (newest on ConanCenter, used by vcl's Vulkan backend)
+          # declares CMake < 3.5, which CMake 4 rejects when it is built from source
+          Add-Content -Path (conan profile path default) -Value "`n[buildenv]`nspirv-cross/*:CMAKE_POLICY_VERSION_MINIMUM=3.5"
           # Let recipes install their system packages (apt) on the Linux runners
           if ($IsLinux) {
             $globalConf = Join-Path (conan config home) "global.conf"
