@@ -15,6 +15,9 @@
 #include <cstdio>
 
 // Graphics backends, one test_<backend>.cpp each. They return false on failure.
+#ifdef TEST_OPENGL
+bool testOpenGL();
+#endif
 #ifdef TEST_D3D12
 bool testD3D12();
 #endif
@@ -78,6 +81,10 @@ int main()
 		return 1;
 	}
 
+#ifdef TEST_OPENGL
+	if (!testOpenGL())
+		return 1;
+#endif
 #ifdef TEST_D3D12
 	if (!testD3D12())
 		return 1;

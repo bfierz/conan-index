@@ -19,13 +19,18 @@ class VclConan(ConanFile):
     # vcl only builds static libraries
     package_type = "static-library"
     settings = "os", "arch", "compiler", "build_type"
+    # The graphics backend options are named as in upstream's conanfile.py
     options = {
         "fPIC": [True, False],
+        "with_opengl": [True, False],
+        "with_egl": [True, False],
         "with_d3d12": [True, False],
         "with_vulkan": [True, False],
     }
     default_options = {
         "fPIC": True,
+        "with_opengl": False,
+        "with_egl": False,
         "with_d3d12": False,
         "with_vulkan": False,
     }
@@ -40,6 +45,11 @@ class VclConan(ConanFile):
             # Direct3D 12 is only packaged for Windows
             del self.options.with_d3d12
 
+    def configure(self):
+        # EGL creates OpenGL contexts
+        if not self.options.with_opengl:
+            self.options.rm_safe("with_egl")
+
     def layout(self):
         cmake_layout(self, src_folder="src")
 
@@ -48,6 +58,13 @@ class VclConan(ConanFile):
         self.requires("eigen/3.4.1", transitive_headers=True)
         self.requires("abseil/20250814.2", transitive_headers=True)
         self.requires("fmt/11.2.0", transitive_headers=True)
+        if self.options.with_opengl:
+            # vcl's OpenGL headers include <GL/glew.h>. The system OpenGL is driver-bound.
+            self.requires("opengl/system", transitive_headers=True)
+            self.requires("glew/2.2.0", transitive_headers=True)
+            if self.options.with_egl:
+                # vcl's OpenGL context header includes <EGL/egl.h>
+                self.requires(self._egl_ref, transitive_headers=True)
         if self.options.get_safe("with_d3d12"):
             # vcl's D3D12 headers include <directx/d3dx12.h>
             self.requires("directx-headers/1.614.0", transitive_headers=True)
@@ -59,6 +76,11 @@ class VclConan(ConanFile):
             self.requires("vulkan-headers/1.4.350.0", transitive_headers=True)
             self.requires("vulkan-loader/1.4.350.0")
             self.requires("spirv-cross/cci.20211113")
+
+    @property
+    def _egl_ref(self):
+        # mcnopper-egl comes from this index; both export egl::egl
+        return "mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system"
 
     def validate(self):
         check_min_cppstd(self, 17)
@@ -76,6 +98,8 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_BUILD_EXAMPLES"] = False
         tc.cache_variables["VCL_BUILD_TOOLS"] = False
         tc.cache_variables["VCL_VECTORIZE"] = self._vectorize
+        tc.cache_variables["VCL_OPENGL_SUPPORT"] = bool(self.options.with_opengl)
+        tc.cache_variables["VCL_EGL_SUPPORT"] = bool(self.options.get_safe("with_egl"))
         tc.cache_variables["VCL_D3D12_SUPPORT"] = bool(self.options.get_safe("with_d3d12"))
         tc.cache_variables["VCL_VULKAN_SUPPORT"] = bool(self.options.with_vulkan)
         tc.generate()
@@ -123,6 +147,13 @@ class VclConan(ConanFile):
         graphics_requires = ["core", "abseil::abseil"]
         graphics_defines = []
         graphics_system_libs = []
+        if self.options.with_opengl:
+            graphics_requires.extend(["opengl::opengl", "glew::glew"])
+            graphics_defines.append("VCL_OPENGL_SUPPORT")
+            if self.options.with_egl:
+                egl = self._egl_ref.split("/")[0]
+                graphics_requires.append(f"{egl}::{egl}")
+                graphics_defines.append("VCL_EGL_SUPPORT")
         if self.options.get_safe("with_d3d12"):
             graphics_requires.append("directx-headers::directx-headers")
             graphics_defines.append("VCL_D3D12_SUPPORT")

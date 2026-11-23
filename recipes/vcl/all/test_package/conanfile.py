@@ -19,6 +19,8 @@ class TestPackageConan(ConanFile):
         # One switch per graphics backend that the tested vcl package enables
         vcl_options = self.dependencies[self.tested_reference_str].options
         tc = CMakeToolchain(self)
+        tc.cache_variables["TEST_OPENGL"] = bool(vcl_options.get_safe("with_opengl"))
+        tc.cache_variables["TEST_EGL"] = bool(vcl_options.get_safe("with_egl"))
         tc.cache_variables["TEST_D3D12"] = bool(vcl_options.get_safe("with_d3d12"))
         # Exists on every OS: read it directly, so that a recipe without it fails here
         tc.cache_variables["TEST_VULKAN"] = bool(vcl_options.with_vulkan)

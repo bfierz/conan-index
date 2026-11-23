@@ -8,6 +8,14 @@ add_executable(${PROJECT_NAME} test_package.cpp)
 target_link_libraries(${PROJECT_NAME} PRIVATE vcl::core vcl::math vcl::geometry vcl::components vcl::compute vcl::graphics)
 
 # Each enabled graphics backend adds a source file and a TEST_<BACKEND> define
+if(TEST_OPENGL)
+	target_sources(${PROJECT_NAME} PRIVATE test_opengl.cpp)
+	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_OPENGL)
+	# EGL is tested as part of OpenGL
+	if(TEST_EGL)
+		target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_EGL)
+	endif()
+endif()
 if(TEST_D3D12)
 	target_sources(${PROJECT_NAME} PRIVATE test_d3d12.cpp)
 	target_compile_definitions(${PROJECT_NAME} PRIVATE TEST_D3D12)
