@@ -22,9 +22,7 @@ RECIPES = Path(__file__).resolve().parent.parent / "recipes"
 
 # Recipes the checks skip, with the reason. Remove an entry once its recipe is
 # ported, so that it is checked again.
-EXCLUDED = {
-    "vcl": "still a Conan 1 recipe (imports from `conans`); its port is tracked in bfierz/vcl#157",
-}
+EXCLUDED = {}
 
 
 def changed_packages(base):
