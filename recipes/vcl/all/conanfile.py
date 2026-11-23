@@ -1,132 +1,95 @@
-import glob
-import shutil
+from conan import ConanFile
+from conan.errors import ConanInvalidConfiguration
+from conan.tools.build import check_min_cppstd
+from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
+from conan.tools.files import copy, get, rmdir
 import os
-from conans import ConanFile, CMake, tools
+
+
+required_conan_version = ">=2.0.9"
+
 
 class VclConan(ConanFile):
     name = "vcl"
-    
     description = "Visual Computing Library (VCL)"
-    topics = ("Visual Computing")
-
+    license = "MIT"
+    url = "https://github.com/bfierz/conan-index"
     homepage = "https://github.com/bfierz/vcl"
-    url = "https://github.com/conan-io/conan-center-index"
-
-    license = "MIT License"
-
-    exports_sources = ["CMakeLists.txt", "patches/**"]
-    generators = "cmake"
-
+    topics = ("visual computing", "simd", "geometry", "graphics")
+    # vcl only builds static libraries
+    package_type = "static-library"
     settings = "os", "arch", "compiler", "build_type"
-    options = {
-            "vectorization": ["AVX", "AVX 2", "SSE 4.2" ], 
-            "d3d12": [True, False],
-            "opengl": [True, False],
-            "fPIC": [True, False]
-            }
-    default_options = {
-            "vectorization": "AVX",
-            "d3d12": False,
-            "opengl": False,
-            "fPIC": True
-    }
-    _cmake = None
+    options = {"fPIC": [True, False]}
+    default_options = {"fPIC": True}
 
-    def requirements(self):
-        self.requires("abseil/20200923.2")
-        self.requires("eigen/3.3.9")
-        self.requires("fmt/7.1.3")
-
-        if self.options.opengl:
-            self.requires("glew/2.1.0")
-
-    @property
-    def _source_subfolder(self):
-        return "source_subfolder"
-    @property
-    def _build_subfolder(self):
-        return "build_subfolder"
+    # Instruction set passed as VCL_VECTORIZE; it is upstream's default
+    _vectorize = "SSE 4.1"
 
     def config_options(self):
-
-        if self.settings.os == 'Windows':
+        if self.settings.os == "Windows":
             del self.options.fPIC
-        else:
-            del self.options.d3d12
-            self.options["abseil"].fPIC = self.options.fPIC
-            self.options["glew"].fPIC = self.options.fPIC
 
-    def configure(self):
-        minimal_cpp_standard = "14"
-        if self.settings.compiler.cppstd:
-            tools.check_min_cppstd(self, 14)
+    def layout(self):
+        cmake_layout(self, src_folder="src")
+
+    def requirements(self):
+        # Versions as in upstream's conanfile.py. All of them appear in vcl's public headers.
+        self.requires("eigen/3.4.1", transitive_headers=True)
+        self.requires("abseil/20250814.2", transitive_headers=True)
+        self.requires("fmt/11.2.0", transitive_headers=True)
+
+    def validate(self):
+        check_min_cppstd(self, 17)
+        if str(self.settings.arch) not in ("x86", "x86_64"):
+            raise ConanInvalidConfiguration(f"{self.ref} is only configured for x86 SIMD (VCL_VECTORIZE={self._vectorize})")
 
     def source(self):
-        tools.get(**self.conan_data["sources"][self.version])
-        extracted_dir = glob.glob('vcl-*/')[0]
-        os.rename(extracted_dir, self._source_subfolder)
-        
-        for patch in self.conan_data.get("patches", {}).get(self.version, []):
-            tools.patch(**patch)
-        
-    def _configure_cmake(self):
-        cmake = CMake(self)
+        get(self, **self.conan_data["sources"][self.version], strip_root=True)
 
-        # Conan configuration
-        cmake.definitions["CONAN_CMAKE_INSTALL_DIR"] = self.install_folder
-
-        # Configure which parts to build
-        cmake.definitions["VCL_BUILD_BENCHMARKS"] = False
-        cmake.definitions["VCL_BUILD_TESTS"] = False
-        cmake.definitions["VCL_BUILD_TOOLS"] = False
-        cmake.definitions["VCL_BUILD_EXAMPLES"] = False
-
-        # Configure features
-        cmake.definitions["VCL_CXX_STANDARD"] = self.settings.compiler.cppstd if self.settings.compiler.cppstd else 14
-        cmake.definitions["VCL_VECTORIZE"] = str(self.options.vectorization)
-        if self.options.opengl:
-            cmake.definitions["VCL_OPENGL_SUPPORT"] = True
-        if self.options.get_safe("d3d12"):
-            cmake.definitions["VCL_D3D12_SUPPORT"] = self.options.d3d12
-        if self.settings.os != "Windows":
-            cmake.definitions["CMAKE_POSITION_INDEPENDENT_CODE"] = self.options.fPIC
-
-        # Configure external targets
-        cmake.definitions["vcl_ext_absl"] = "CONAN_PKG::abseil"
-        cmake.definitions["vcl_ext_eigen"] = "CONAN_PKG::eigen"
-        cmake.definitions["vcl_ext_fmt"] = "CONAN_PKG::fmt"
-        if self.options.opengl:
-            cmake.definitions["vcl_ext_glew"] = "CONAN_PKG::glew"
-
-        return cmake
+    def generate(self):
+        # The C++ standard comes from the profile's compiler.cppstd (CMAKE_CXX_STANDARD)
+        tc = CMakeToolchain(self)
+        tc.cache_variables["VCL_BUILD_TESTS"] = False
+        tc.cache_variables["VCL_BUILD_BENCHMARKS"] = False
+        tc.cache_variables["VCL_BUILD_EXAMPLES"] = False
+        tc.cache_variables["VCL_BUILD_TOOLS"] = False
+        tc.cache_variables["VCL_VECTORIZE"] = self._vectorize
+        tc.generate()
+        CMakeDeps(self).generate()
 
     def build(self):
-        cmake = self._configure_cmake()
-        cmake.configure(build_folder=self._build_subfolder)
-
-        cmake.build(target="vcl_core")
-        cmake.build(target="vcl.components")
-        cmake.build(target="vcl_compute")
-        cmake.build(target="vcl.geometry")
-        cmake.build(target="vcl_graphics")
-        cmake.build(target="vcl.math")
-
-        cmake.install()
+        cmake = CMake(self)
+        cmake.configure()
+        cmake.build()
 
     def package(self):
-        # Only copy missing files, not covered by cmake install, to the package folder
-        self.copy(pattern="LICENSE", dst="licenses", src=os.path.join(self.source_folder, self._source_subfolder))
+        copy(self, "LICENSE", self.source_folder, os.path.join(self.package_folder, "licenses"))
+        CMake(self).install()
+        # CMakeDeps generates the config files from package_info()
+        rmdir(self, os.path.join(self.package_folder, "lib", "cmake"))
+
+    @property
+    def _simd_flags(self):
+        # The PUBLIC compile options of vcl's targets (src/cmake/VCLConfig.cmake), which CMakeDeps
+        # does not see. MSVC on x86_64 has SSE 4.1 without a flag.
+        if self.settings.compiler in ("gcc", "clang", "apple-clang", "intel-cc"):
+            return ["-msse4.1"]
+        return []
+
+    def _add_component(self, name, lib, requires):
+        component = self.cpp_info.components[name]
+        component.set_property("cmake_target_name", f"vcl::{name}")
+        component.libs = [lib]
+        component.requires = requires
+        return component
 
     def package_info(self):
-        self.cpp_info.defines = []
-        if self.options.opengl:
-            self.cpp_info.defines.append('VCL_OPENGL_SUPPORT')
-        if self.options.get_safe("d3d12"):
-            self.cpp_info.defines.append('VCL_D3D12_SUPPORT')
+        self.cpp_info.set_property("cmake_file_name", "vcl")
+        self.cpp_info.set_property("cmake_target_name", "vcl::vcl")
 
-        self.cpp_info.includedirs = ['include/vcl_core', 'include/vcl.geometry', 'include/vcl_graphics', 'include/vcl.math']
-        if self.settings.os == "Windows":
-            self.cpp_info.libs = ['vcl_core.lib', 'vcl.math.lib', 'vcl.geometry.lib', 'vcl_graphics.lib']
-        else:
-            self.cpp_info.libs = ['libvcl_core.a', 'libvcl.math.a', 'libvcl.geometry.a', 'libvcl_graphics.a']
-        self.cpp_info.libdirs = [ "lib" ]
+        core = self._add_component("core", "vcl_core", ["eigen::eigen", "abseil::abseil", "fmt::fmt"])
+        core.cxxflags = self._simd_flags
+        self._add_component("math", "vcl.math", ["core"])
+        self._add_component("geometry", "vcl.geometry", ["core"])
+        self._add_component("components", "vcl.components", ["core"])
+        self._add_component("compute", "vcl_compute", ["core"])
