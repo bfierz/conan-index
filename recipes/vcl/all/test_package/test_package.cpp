@@ -9,9 +9,16 @@
 #include <vcl/math/math.h>
 #include <vcl/math/polardecomposition.h>
 
+// Graphics backends (vcl::graphics), which define their VCL_*_SUPPORT macro
+#ifdef VCL_OPENGL_SUPPORT
+#	include <vcl/graphics/opengl/context.h>
+#	include <vcl/graphics/opengl/gl.h>
+#endif
+
 // C++ standard library
 #include <cmath>
 #include <cstdio>
+#include <type_traits>
 
 int main()
 {
@@ -59,6 +66,25 @@ int main()
 	// Components (vcl::components)
 	Vcl::Components::EntityManager entities;
 	entities.destroy(entities.create());
+
+#ifdef VCL_OPENGL_SUPPORT
+	// OpenGL (vcl::graphics): the format tables need no GL context
+	if (Vcl::Graphics::OpenGL::GL::toRenderType(Vcl::Graphics::SurfaceFormat::R8G8B8A8_UNORM).internalFormat() != GL_RGBA8)
+	{
+		std::printf("OpenGL render type failed\n");
+		return 1;
+	}
+	std::printf("vcl: OpenGL works\n");
+#endif
+#ifdef VCL_EGL_SUPPORT
+	// EGL (vcl::graphics): the EGL context constructor exists. Referencing the context code
+	// links it, and with it EGL, without creating a context.
+	static_assert(std::is_constructible_v<Vcl::Graphics::OpenGL::Context, EGLDisplay, EGLSurface>, "EGL context constructor");
+	const char* (*volatile profile_type)() = &Vcl::Graphics::OpenGL::Context::profileType;
+	if (profile_type == nullptr)
+		return 1;
+	std::printf("vcl: EGL context links\n");
+#endif
 
 	std::printf("vcl: SIMD, math, geometry and components work\n");
 	return 0;
