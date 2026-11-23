@@ -19,8 +19,23 @@ class VclConan(ConanFile):
     # vcl only builds static libraries
     package_type = "static-library"
     settings = "os", "arch", "compiler", "build_type"
-    options = {"fPIC": [True, False]}
-    default_options = {"fPIC": True}
+    # The graphics backend options are named as in upstream's conanfile.py
+    options = {
+        "fPIC": [True, False],
+        "with_opengl": [True, False],
+        "with_egl": [True, False],
+    }
+    default_options = {
+        "fPIC": True,
+        "with_opengl": False,
+        "with_egl": False,
+    }
+
+    # Graphics backend option -> VCL_* cache variable, which vcl also defines PUBLIC on vcl_graphics
+    _graphics_backends = {
+        "with_opengl": "VCL_OPENGL_SUPPORT",
+        "with_egl": "VCL_EGL_SUPPORT",
+    }
 
     # Instruction set passed as VCL_VECTORIZE; it is upstream's default
     _vectorize = "SSE 4.1"
@@ -28,6 +43,11 @@ class VclConan(ConanFile):
     def config_options(self):
         if self.settings.os == "Windows":
             del self.options.fPIC
+
+    def configure(self):
+        # EGL creates OpenGL contexts
+        if not self.options.with_opengl:
+            self.options.rm_safe("with_egl")
 
     def layout(self):
         cmake_layout(self, src_folder="src")
@@ -37,6 +57,21 @@ class VclConan(ConanFile):
         self.requires("eigen/3.4.1", transitive_headers=True)
         self.requires("abseil/20250814.2", transitive_headers=True)
         self.requires("fmt/11.2.0", transitive_headers=True)
+        for ref in self._graphics_requires:
+            self.requires(ref, transitive_headers=True)
+
+    @property
+    def _graphics_requires(self):
+        # What vcl::graphics links, per enabled backend; empty without a backend.
+        # vcl's public headers include all of them.
+        refs = []
+        if self.options.with_opengl:
+            # The system OpenGL is driver-bound
+            refs += ["opengl/system", "glew/2.2.0"]
+            if self.options.with_egl:
+                # mcnopper-egl comes from this index; both export egl::egl
+                refs.append("mcnopper-egl/1.0.19" if self.settings.os == "Windows" else "egl/system")
+        return refs
 
     def validate(self):
         check_min_cppstd(self, 17)
@@ -54,6 +89,8 @@ class VclConan(ConanFile):
         tc.cache_variables["VCL_BUILD_EXAMPLES"] = False
         tc.cache_variables["VCL_BUILD_TOOLS"] = False
         tc.cache_variables["VCL_VECTORIZE"] = self._vectorize
+        for option, variable in self._graphics_backends.items():
+            tc.cache_variables[variable] = bool(self.options.get_safe(option))
         tc.generate()
         CMakeDeps(self).generate()
 
@@ -93,3 +130,10 @@ class VclConan(ConanFile):
         self._add_component("geometry", "vcl.geometry", ["core"])
         self._add_component("components", "vcl.components", ["core"])
         self._add_component("compute", "vcl_compute", ["core"])
+
+        # vcl_graphics is always built, but only packaged as a component with a backend
+        graphics_requires = self._graphics_requires
+        if graphics_requires:
+            names = [ref.split("/")[0] for ref in graphics_requires]
+            graphics = self._add_component("graphics", "vcl_graphics", ["core"] + [f"{name}::{name}" for name in names])
+            graphics.defines = [variable for option, variable in self._graphics_backends.items() if self.options.get_safe(option)]
